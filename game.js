@@ -170,15 +170,36 @@ function move(dx, dy) {
   return true;
 }
 
+// SRSの右回転候補。キーは回転前>回転後、座標は右・下が正。
+// https://erikdemaine.org/papers/TetrisPieces_FUN2024/paper.pdf の表2・3
+const COMMON_KICKS = {
+  "0>1": [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],
+  "1>2": [[0,0], [1,0], [1,1], [0,-2], [1,-2]],
+  "2>3": [[0,0], [1,0], [1,-1], [0,2], [1,2]],
+  "3>0": [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]],
+};
+const I_KICKS = {
+  "0>1": [[0,0], [-2,0], [1,0], [-2,1], [1,-2]],
+  "1>2": [[0,0], [-1,0], [2,0], [-1,-2], [2,1]],
+  "2>3": [[0,0], [2,0], [-1,0], [2,-1], [-1,2]],
+  "3>0": [[0,0], [1,0], [-2,0], [1,2], [-2,-1]],
+};
+
 function rotate() {
   const rotation = (piece.rotation + 1) % 4;
   const rotated = ROTATIONS[piece.color - 1][rotation];
-  // 壁や固定済みブロックに重なる回転は取り消す。
-  if (!collides(rotated, piece.x, piece.y)) {
+  const transition = `${piece.rotation}>${rotation}`;
+  const kicks = piece.color === 2 ? [[0,0]]
+    : (piece.color === 1 ? I_KICKS : COMMON_KICKS)[transition];
+  for (const [dx, dy] of kicks) {
+    if (collides(rotated, piece.x + dx, piece.y + dy)) continue;
     const wasGrounded = isGrounded();
+    piece.x += dx;
+    piece.y += dy;
     piece.shape = rotated;
     piece.rotation = rotation;
     if (wasGrounded) resetLockDelay();
+    return;
   }
 }
 

@@ -68,7 +68,8 @@ run(`
   assert.equal(JSON.stringify(piece.shape), originalShape);
   piece = { rotation: 1, shape: ROTATIONS[0][1], x: 7, y: 0, color: 1 };
   key("ArrowUp");
-  assert.equal(piece.rotation, 1);
+  assert.equal(piece.rotation, 2);
+  assert.equal(piece.x, 6);
 
   // 1〜4行の同時消去と従来の得点。
   for (let count = 1; count <= 4; count++) {
@@ -336,7 +337,7 @@ lockTests(`
   floorPiece();
   piece = { rotation: 0, shape: ROTATIONS[0][0], x: 0, y: 18, color: 1 };
   update(400);
-  key("ArrowLeft"); key("ArrowUp"); key("ArrowDown");
+  key("ArrowLeft"); key("ArrowDown");
   assert.equal(lockElapsed, 400);
   assert.equal(lockResets, 0);
   update(500);
@@ -491,7 +492,6 @@ rotationTests(`
     for (let state = 0; state < 4; state++) {
       restart(); spawnPiece(type); piece.y = 5;
       for (let i = 0; i < state; i++) rotate();
-      const before = JSON.stringify(piece);
       const current = cells(piece.shape, piece.x, piece.y);
       const target = cells(ROTATIONS[type][(state + 1) % 4], piece.x, piece.y);
       const obstacle = target.find(([x,y]) => !current.some(([cx,cy]) => cx === x && cy === y));
@@ -499,9 +499,8 @@ rotationTests(`
         board[obstacle[1]][obstacle[0]] = 7;
         lockElapsed = 200;
         key("ArrowUp");
-        assert.equal(JSON.stringify(piece), before);
-        assert.equal(lockElapsed, 200);
-        assert.equal(lockResets, 0);
+        assert.ok(!collides(piece.shape, piece.x, piece.y));
+        assert.equal(board[obstacle[1]][obstacle[0]], 7);
       }
 
       // 全種類・全方向でゴースト位置と固定マス・ドロップ得点が一致。
@@ -516,12 +515,13 @@ rotationTests(`
       fixed.forEach(([x,y]) => assert.equal(board[y][x], type + 1));
     }
   }
-  // 壁際は座標補正しない。空白部分が盤外にあっても実ブロックで判定。
+  // I型は左壁から右へ2マス補正。空白部分ではなく実ブロックで判定。
   restart(); spawnPiece(0); rotate(); piece.x = -2;
   assert.equal(collides(piece.shape, piece.x, piece.y), false);
-  const atWall = JSON.stringify(piece);
   rotate();
-  assert.equal(JSON.stringify(piece), atWall);
+  assert.equal(piece.rotation, 2);
+  assert.equal(piece.x, 0);
+  assert.ok(!collides(piece.shape, piece.x, piece.y));
 
   // HOLDで向きを初期化し、NEXTを余分に消費しない。
   restart(); spawnPiece(2); piece.y = 5; rotate(); hold();
@@ -535,3 +535,114 @@ rotationTests(`
   assert.equal(JSON.stringify(ROTATIONS), originalStates);
 `);
 console.log("PASS: fixed rotation centers, four states, O stability, I coordinates, collision rejection, all-orientation ghost/drop and HOLD reset.");
+
+const kickTests = createGame();
+kickTests(`
+  function setup(type, state, x, y) {
+    restart(); spawnPiece(type);
+    piece.rotation = state;
+    piece.shape = ROTATIONS[type][state];
+    piece.x = x; piece.y = y;
+    assert.ok(!collides(piece.shape, x, y));
+  }
+  function checkDrop() {
+    const landing = ghostY();
+    assert.ok(!collides(piece.shape, piece.x, landing));
+    assert.ok(collides(piece.shape, piece.x, landing + 1));
+    const expected = [];
+    piece.shape.forEach((row, y) => row.forEach((cell, x) => {
+      if (cell) expected.push([piece.x + x, landing + y, piece.color]);
+    }));
+    const points = (landing - piece.y) * 2;
+    key("Space");
+    assert.equal(score, points);
+    expected.forEach(([x,y,color]) => assert.equal(board[y][x], color));
+    assert.equal(piece.rotation, 0);
+  }
+  // 位置・向き・補正先を明示したケース。
+  const cases = [
+    [2, 1, -1, 5, 0, 5],   // T: 左壁、90→180
+    [2, 3, 8, 5, 7, 5],    // T: 右壁、270→0
+    [2, 0, 3, 18, 2, 17],  // T: 床、0→90（左上へ）
+    [0, 1, -2, 5, 0, 5],  // I: 左壁、2マス補正
+    [0, 1, 7, 5, 6, 5],   // I: 右壁
+    [0, 0, 3, 18, 4, 16], // I: 床、最後の候補で成功
+    [0, 2, 3, 17, 5, 16], // I: 180→270
+    [0, 3, -1, 5, 0, 5],  // I: 270→0
+  ];
+  for (const [type, state, x, y, expectedX, expectedY] of cases) {
+    setup(type, state, x, y);
+    assert.ok(collides(ROTATIONS[type][(state + 1) % 4], x, y));
+    const grounded = isGrounded();
+    lockElapsed = 200;
+    key("ArrowUp");
+    assert.deepEqual([piece.x, piece.y, piece.rotation], [expectedX, expectedY, (state + 1) % 4]);
+    assert.ok(!collides(piece.shape, piece.x, piece.y));
+    assert.equal(lockResets, grounded ? 1 : 0);
+    assert.equal(lockElapsed, grounded ? 0 : 200);
+    checkDrop();
+  }
+  // 共通グループの全種類で左壁Kickが使われる。
+  for (const type of [2,3,4,5,6]) {
+    setup(type, 1, -1, 5);
+    key("ArrowUp");
+    assert.equal(piece.x, 0);
+    assert.equal(piece.rotation, 2);
+    assert.ok(!collides(piece.shape, piece.x, piece.y));
+  }
+  // その場が空いていれば位置補正を行わない。
+  for (let type = 0; type < 7; type++) {
+    for (let state = 0; state < 4; state++) {
+      setup(type, state, 3, 5);
+      key("ArrowUp");
+      assert.deepEqual([piece.x, piece.y, piece.rotation], [3, 5, (state + 1) % 4]);
+    }
+  }
+  // 固定ブロックを避け、先に成功する候補を採用。
+  setup(2, 0, 3, 5);
+  board[7][4] = 7;
+  key("ArrowUp");
+  assert.deepEqual([piece.x, piece.y, piece.rotation], [2,5,1]);
+  assert.equal(board[7][4], 7);
+  checkDrop();
+
+  // 全候補が塞がっているときは位置・形・回転状態・固定待ちを維持。
+  for (const type of [0,2,3,4,5,6]) {
+    for (let state = 0; state < 4; state++) {
+      setup(type, state, 3, 5);
+      board.forEach(row => row.fill(7));
+      piece.shape.forEach((row, y) => row.forEach((cell, x) => {
+        if (cell) board[piece.y + y][piece.x + x] = 0;
+      }));
+      lockElapsed = 300; lockResets = 4;
+      const before = JSON.stringify([piece, board, lockElapsed, lockResets]);
+      key("ArrowUp");
+      assert.equal(JSON.stringify([piece, board, lockElapsed, lockResets]), before);
+    }
+  }
+  // O型は壁・床・障害物が近くても位置補正しない。
+  setup(1, 0, 0, 18);
+  board[18][2] = 7;
+  for (let i = 0; i < 4; i++) {
+    key("ArrowUp");
+    assert.deepEqual([piece.x, piece.y], [0,18]);
+    assert.deepEqual(piece.shape, [[1,1],[1,1]]);
+  }
+  // Kickでもロックディレイの延長上限を超えない。
+  setup(2, 0, 3, 18);
+  lockElapsed = 400; lockResets = MAX_LOCK_RESETS;
+  key("ArrowUp");
+  assert.equal(lockElapsed, 400);
+  assert.equal(lockResets, MAX_LOCK_RESETS);
+
+  setup(2, 1, -1, 5); key("ArrowUp"); key("KeyC");
+  assert.equal(piece.rotation, 0);
+  key("Space"); key("KeyC");
+  assert.equal(piece.color, 3);
+  assert.equal(piece.rotation, 0);
+  assert.deepEqual([piece.x, piece.y], [3,0]);
+  key("ArrowUp"); key("KeyR");
+  assert.equal(piece.rotation, 0);
+  assert.equal(lockResets, 0);
+`);
+console.log("PASS: SRS kicks at both walls, floor, obstacles, all transitions, O stability, blocked rotation, ghost/drop, HOLD/restart and lock reset limit.");
