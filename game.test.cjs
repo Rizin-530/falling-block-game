@@ -18,7 +18,9 @@ function createGame(storage = {}) {
           width: id === "board" ? 300 : 120,
           height: id === "board" ? 600 : 80,
           getContext: () => context,
-          addEventListener(name, listener) { this[name] = listener; },
+          addEventListener(name, listener) {
+            this[name] = (event = { timeStamp: vm.runInContext("lastTime ?? 0", sandbox) }) => listener(event);
+          },
         };
       },
     },
@@ -27,7 +29,10 @@ function createGame(storage = {}) {
       setItem(key, value) { storage[key] = value; },
     },
     requestAnimationFrame() {},
-    key(code, repeat = false, modifiers = {}) { listeners.keydown({ code, repeat, preventDefault() {}, ...modifiers }); },
+    performance: { now: () => vm.runInContext("lastTime ?? 0", sandbox) },
+    key(code, repeat = false, modifiers = {}) {
+      listeners.keydown({ code, repeat, timeStamp: vm.runInContext("lastTime ?? 0", sandbox), preventDefault() {}, ...modifiers });
+    },
   };
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox);
@@ -144,7 +149,7 @@ run(`
   update(10000);
   assert.equal(JSON.stringify([board, piece, score, heldType, upcomingType]), pausedState);
   assert.equal(dropElapsed, 300);
-  pauseButton.click();
+  pauseButton.click({ timeStamp: 20000 });
   assert.equal(paused, false);
   update(20000); update(20399);
   assert.equal(piece.y, 0);
@@ -396,7 +401,7 @@ lockTests(`
   key("KeyP");
   update(10000);
   assert.equal(lockElapsed, 400);
-  key("KeyP");
+  key("KeyP", false, { timeStamp: 20000 });
   update(20000); update(20099);
   assert.equal(occupied(), 0);
   update(20100);
@@ -646,3 +651,100 @@ kickTests(`
   assert.equal(lockResets, 0);
 `);
 console.log("PASS: SRS kicks at both walls, floor, obstacles, all transitions, O stability, blocked rotation, ghost/drop, HOLD/restart and lock reset limit.");
+
+const timingTests = createGame();
+timingTests(`
+  function timedKey(code, timeStamp) { key(code, false, { timeStamp }); }
+  function nearFloor() {
+    restart(); spawnPiece(1); piece.y = 17; update(0);
+  }
+  function occupied() { return board.flat().filter(Boolean).length; }
+  nearFloor();
+  timedKey("ArrowDown", 490);
+  update(500);
+  assert.equal(occupied(), 0);
+  assert.equal(lockElapsed, 10);
+  update(989);
+  assert.equal(occupied(), 0);
+  assert.equal(lockElapsed, 499);
+  update(990);
+  assert.equal(occupied(), 4);
+
+  for (const code of ["ArrowLeft", "ArrowUp"]) {
+    nearFloor(); timedKey("ArrowDown", 490);
+    timedKey(code, 495);
+    assert.equal(lockResets, 1);
+    update(500);
+    assert.equal(lockElapsed, 5);
+    update(994); assert.equal(occupied(), 0);
+    update(995); assert.equal(occupied(), 4);
+  }
+  // 壁に当たる失敗操作は待ち時間を延ばさない。
+  nearFloor(); piece.x = 0; timedKey("ArrowDown", 490);
+  timedKey("ArrowLeft", 495); update(500);
+  assert.equal(lockElapsed, 10);
+  assert.equal(lockResets, 0);
+
+  // 床際TのKick成功でも、入力以前の時間をリセット後に加算しない。
+  restart(); spawnPiece(2); piece.y = 18; update(0);
+  timedKey("ArrowUp", 490); update(500);
+  assert.deepEqual([piece.x, piece.y, piece.rotation], [2,17,1]);
+  assert.equal(lockElapsed, 10);
+  assert.equal(lockResets, 1);
+  update(989); assert.equal(occupied(), 0);
+  update(990); assert.equal(occupied(), 4);
+
+  // フレームの間で停止・再開しても、停止前後だけを計上。
+  nearFloor(); timedKey("ArrowDown", 490);
+  timedKey("KeyP", 495);
+  assert.equal(lockElapsed, 5);
+  update(10000); assert.equal(lockElapsed, 5);
+  timedKey("KeyP", 20000);
+  update(20010); assert.equal(lockElapsed, 15);
+  update(20494); assert.equal(occupied(), 0);
+  update(20495); assert.equal(occupied(), 4);
+
+  nearFloor(); timedKey("ArrowDown", 490);
+  pauseButton.click({ timeStamp: 495 });
+  pauseButton.click({ timeStamp: 20000 });
+  update(20010); assert.equal(lockElapsed, 15);
+
+  nearFloor(); timedKey("Space", 490);
+  assert.equal(occupied(), 4);
+  assert.equal(lockElapsed, 0);
+  update(500); assert.equal(dropElapsed, 10);
+
+  nearFloor(); timedKey("ArrowDown", 490); timedKey("KeyC", 495);
+  assert.equal(lockElapsed, 0);
+  assert.equal(lockResets, 0);
+  update(500); assert.equal(dropElapsed, 5);
+  timedKey("KeyR", 505);
+  assert.equal(lastTime, null);
+  assert.equal(dropElapsed, 0);
+  assert.equal(lockElapsed, 0);
+  assert.equal(lockResets, 0);
+
+  // 高レベルでは入力前の自動落下を先に処理する。
+  restart(); spawnPiece(1); level = 11; update(0);
+  timedKey("ArrowLeft", 490);
+  assert.equal(piece.y, 4);
+  assert.equal(dropElapsed, 90);
+  update(500); assert.equal(piece.y, 5);
+  assert.equal(dropElapsed, 0);
+
+  nearFloor(); level = 11;
+  timedKey("ArrowDown", 90); update(100);
+  assert.equal(lockElapsed, 10);
+  update(589); assert.equal(occupied(), 0);
+  update(590); assert.equal(occupied(), 4);
+
+  // 遅いフレームの間に自然着地した場合の固定時間も保つ。
+  nearFloor(); level = 11;
+  timedKey("ArrowLeft", 590);
+  assert.equal(lockResets, 1);
+  update(600); assert.equal(lockElapsed, 10);
+  // 入力時刻より古い描画時刻でも二重に経過時間を計上しない。
+  update(595); assert.equal(lastTime, 600);
+  update(610); assert.equal(lockElapsed, 20);
+`);
+console.log("PASS: timestamped input, 490ms landing, lock boundaries, resets, kicks, pause/buttons, HOLD, hard drop, restart and high-level gravity.");

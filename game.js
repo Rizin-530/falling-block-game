@@ -121,10 +121,11 @@ function dropInterval() {
   return Math.max(100, DROP_INTERVAL - (level - 1) * 60);
 }
 
-function togglePause() {
+function togglePause(time = performance.now()) {
+  if (gameOver) return;
+  advanceTime(time);
   if (gameOver) return;
   paused = !paused;
-  lastTime = null;
   statusElement.textContent = paused ? "一時停止中" : "プレイ中";
   pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
 }
@@ -317,10 +318,13 @@ document.addEventListener("keydown", event => {
     return;
   }
   if (event.code === "KeyP") {
-    if (!event.repeat) togglePause();
+    if (!event.repeat) togglePause(event.timeStamp);
     return;
   }
   if (gameOver || paused) return;
+  // 入力前の時間は入力前の姿勢に適用し、着地・リセット前の時間を混ぜない。
+  advanceTime(event.timeStamp);
+  if (gameOver) return;
   switch (event.code) {
     case "ArrowLeft": move(-1, 0); break;
     case "ArrowRight": move(1, 0); break;
@@ -332,13 +336,15 @@ document.addEventListener("keydown", event => {
   draw();
 });
 document.getElementById("restart").addEventListener("click", restart);
-pauseButton.addEventListener("click", togglePause);
+pauseButton.addEventListener("click", event => togglePause(event.timeStamp));
 
 // 別タブから戻ったときに経過時間分が一気に落ちるのを防ぐ。
 document.addEventListener("visibilitychange", () => { lastTime = null; });
 
-function update(time) {
+function advanceTime(time) {
   if (lastTime === null) lastTime = time;
+  // 同じフレーム内で入力が先に処理されても時間を巻き戻さない。
+  time = Math.max(time, lastTime);
   if (!gameOver && !paused && !document.hidden) {
     let remaining = time - lastTime;
     let changed = false;
@@ -365,6 +371,10 @@ function update(time) {
     if (changed) draw();
   }
   lastTime = time;
+}
+
+function update(time) {
+  advanceTime(time);
   requestAnimationFrame(update);
 }
 
