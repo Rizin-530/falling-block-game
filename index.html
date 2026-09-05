@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>落ちものブロックパズル</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="game.js" defer></script>
+</head>
+<body>
+  <main>
+    <header class="heading">
+      <p class="eyebrow">BLOCK PUZZLE</p>
+      <h1>落ちものブロックパズル</h1>
+    </header>
+    <div class="game-layout">
+      <aside class="left-panel" aria-label="HOLDと操作ガイド">
+        <section class="panel preview-panel">
+          <h2>HOLD <kbd>C</kbd></h2>
+          <canvas id="hold" width="120" height="80" aria-label="保留中のブロック"></canvas>
+          <p class="hint">固定まで1回交換できます</p>
+        </section>
+        <section class="panel controls">
+          <h2>操作ガイド</h2>
+          <dl>
+            <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>移動</dd></div>
+            <div><dt><kbd>↑</kbd></dt><dd>回転</dd></div>
+            <div><dt><kbd>↓</kbd></dt><dd>ソフトドロップ</dd></div>
+            <div><dt><kbd>Space</kbd></dt><dd>ハードドロップ</dd></div>
+            <div><dt><kbd>C</kbd></dt><dd>HOLD</dd></div>
+            <div><dt><kbd>P</kbd></dt><dd>一時停止・再開</dd></div>
+            <div><dt><kbd>R</kbd></dt><dd>リスタート</dd></div>
+          </dl>
+        </section>
+      </aside>
+      <section class="play-area" aria-label="ゲーム盤面">
+        <canvas id="board" width="300" height="600" aria-label="10列20行のゲーム盤"></canvas>
+        <p id="status" role="status">プレイ中</p>
+      </section>
+      <aside class="right-panel" aria-label="次のブロックと成績">
+        <section class="panel preview-panel">
+          <h2>NEXT</h2>
+          <canvas id="next" width="120" height="80" aria-label="次のブロック"></canvas>
+          <p class="hint">次に落ちるブロック</p>
+        </section>
+        <section class="panel stats" aria-label="成績">
+          <div class="stat"><h2>スコア</h2><strong id="score">0</strong></div>
+          <div class="stat"><h2>ハイスコア</h2><strong id="high-score">0</strong></div>
+          <div class="stat"><h2>レベル</h2><strong id="level">1</strong></div>
+          <p class="hint">10ライン消去でレベルアップ</p>
+        </section>
+        <div class="actions">
+          <button id="pause" type="button">一時停止（P）</button>
+          <button id="restart" type="button">リスタート（R）</button>
+        </div>
+      </aside>
+    </div>
+    <p class="footer-note">薄いブロックは着地点の目印です。</p>
+  </main>
+</body>
+</html>
