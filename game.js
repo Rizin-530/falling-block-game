@@ -15,6 +15,21 @@ const SHAPES = [
   [[1, 0, 0], [1, 1, 1]],         // J
   [[0, 0, 1], [1, 1, 1]],         // L
 ];
+// 正方形の枠を固定して回転する。3×3は中央マス、I型は4マスの交点が中心。
+// SHAPESはプレビュー用の余白なしの形として残す。
+const ROTATIONS = SHAPES.map((shape, type) => {
+  const size = type === 0 ? 4 : type === 1 ? 2 : 3;
+  const initial = Array.from({ length: size }, () => Array(size).fill(0));
+  shape.forEach((row, y) => row.forEach((cell, x) => {
+    initial[y + (type === 0 ? 1 : 0)][x] = cell;
+  }));
+  const states = [initial];
+  for (let rotation = 1; rotation < 4; rotation++) {
+    const previous = states[rotation - 1];
+    states.push(previous[0].map((_, x) => previous.map(row => row[x]).reverse()));
+  }
+  return states;
+});
 const COLORS = ["", "#43d4ec", "#f4d35e", "#bc86ef", "#72d68b", "#ed6d79", "#6396ed", "#eea052"];
 const canvas = document.getElementById("board");
 const context = canvas.getContext("2d");
@@ -70,8 +85,8 @@ function collides(shape, x, y) {
 }
 
 function spawnPiece(type = upcomingType) {
-  const shape = SHAPES[type].map(row => row.slice());
-  piece = { shape, x: Math.floor((COLS - shape[0].length) / 2), y: 0, color: type + 1 };
+  const shape = ROTATIONS[type][0];
+  piece = { shape, rotation: 0, x: Math.floor((COLS - shape[0].length) / 2), y: 0, color: type + 1 };
   dropElapsed = 0;
   lockElapsed = 0;
   lockResets = 0;
@@ -156,11 +171,13 @@ function move(dx, dy) {
 }
 
 function rotate() {
-  const rotated = piece.shape[0].map((_, x) => piece.shape.map(row => row[x]).reverse());
+  const rotation = (piece.rotation + 1) % 4;
+  const rotated = ROTATIONS[piece.color - 1][rotation];
   // 壁や固定済みブロックに重なる回転は取り消す。
   if (!collides(rotated, piece.x, piece.y)) {
     const wasGrounded = isGrounded();
     piece.shape = rotated;
+    piece.rotation = rotation;
     if (wasGrounded) resetLockDelay();
   }
 }
