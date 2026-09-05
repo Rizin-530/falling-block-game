@@ -4,6 +4,8 @@ const COLS = 10;
 const ROWS = 20;
 const CELL = 30;
 const DROP_INTERVAL = 700;
+const LOCK_DELAY = 500;
+const MAX_LOCK_RESETS = 15;
 const SHAPES = [
   [[1, 1, 1, 1]],                 // I
   [[1, 1], [1, 1]],               // O
@@ -41,6 +43,8 @@ let holdUsed;
 let totalLines;
 let level;
 let dropElapsed = 0;
+let lockElapsed = 0;
+let lockResets = 0;
 let lastTime = null;
 let bag = [];
 
@@ -69,6 +73,8 @@ function spawnPiece(type = upcomingType) {
   const shape = SHAPES[type].map(row => row.slice());
   piece = { shape, x: Math.floor((COLS - shape[0].length) / 2), y: 0, color: type + 1 };
   dropElapsed = 0;
+  lockElapsed = 0;
+  lockResets = 0;
   if (collides(shape, piece.x, piece.y)) {
     gameOver = true;
     statusElement.textContent = "ゲームオーバー — R またはボタンで再開";
@@ -129,17 +135,34 @@ function drawPreview(id, type) {
   }));
 }
 
+function isGrounded() {
+  return collides(piece.shape, piece.x, piece.y + 1);
+}
+
+function resetLockDelay() {
+  if (lockResets < MAX_LOCK_RESETS) {
+    lockElapsed = 0;
+    lockResets++;
+  }
+}
+
 function move(dx, dy) {
   if (collides(piece.shape, piece.x + dx, piece.y + dy)) return false;
+  const wasGrounded = isGrounded();
   piece.x += dx;
   piece.y += dy;
+  if (dx !== 0 && wasGrounded) resetLockDelay();
   return true;
 }
 
 function rotate() {
   const rotated = piece.shape[0].map((_, x) => piece.shape.map(row => row[x]).reverse());
   // 壁や固定済みブロックに重なる回転は取り消す。
-  if (!collides(rotated, piece.x, piece.y)) piece.shape = rotated;
+  if (!collides(rotated, piece.x, piece.y)) {
+    const wasGrounded = isGrounded();
+    piece.shape = rotated;
+    if (wasGrounded) resetLockDelay();
+  }
 }
 
 function addScore(points) {
@@ -176,8 +199,6 @@ function lockPiece() {
 function stepDown(softDrop = false) {
   if (move(0, 1)) {
     if (softDrop) addScore(1);
-  } else {
-    lockPiece();
   }
 }
 
@@ -281,15 +302,29 @@ document.addEventListener("visibilitychange", () => { lastTime = null; });
 function update(time) {
   if (lastTime === null) lastTime = time;
   if (!gameOver && !paused && !document.hidden) {
-    dropElapsed += time - lastTime;
-    if (dropElapsed >= dropInterval()) {
-      // フレームの余りを保持する。固定後はspawnPieceで時間をリセットする。
-      while (!gameOver && dropElapsed >= dropInterval()) {
-        dropElapsed -= dropInterval();
-        stepDown();
+    let remaining = time - lastTime;
+    let changed = false;
+    // 落下前と着地後の時間を分け、着地する前の時間を固定待ちに加えない。
+    while (remaining > 0) {
+      if (isGrounded()) {
+        dropElapsed = 0;
+        lockElapsed += remaining;
+        if (lockElapsed >= LOCK_DELAY) {
+          lockPiece();
+          changed = true;
+        }
+        break;
       }
-      draw();
+      const elapsed = Math.min(remaining, dropInterval() - dropElapsed);
+      dropElapsed += elapsed;
+      remaining -= elapsed;
+      if (dropElapsed >= dropInterval()) {
+        dropElapsed = 0;
+        stepDown();
+        changed = true;
+      }
     }
+    if (changed) draw();
   }
   lastTime = time;
   requestAnimationFrame(update);

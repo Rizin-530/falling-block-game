@@ -285,3 +285,170 @@ review(`
   assert.equal(board.flat().filter(Boolean).length, 4);
 `);
 console.log("PASS: all-piece rotation, 20,000 operations, ghost/drop agreement, board invariants and timer boundaries.");
+
+const lockTests = createGame();
+lockTests(`
+  function floorPiece() {
+    restart();
+    spawnPiece(1);
+    piece.y = 18;
+    update(0);
+  }
+  function occupied() { return board.flat().filter(Boolean).length; }
+
+  floorPiece();
+  key("ArrowDown");
+  assert.equal(occupied(), 0);
+  assert.equal(score, 0);
+  update(499);
+  assert.equal(occupied(), 0);
+  update(500);
+  assert.equal(occupied(), 4);
+  assert.equal(lockElapsed, 0);
+  assert.equal(lockResets, 0);
+
+  // 自動落下で着地した時点から500msを測る。
+  floorPiece();
+  piece.y = 17;
+  update(700);
+  assert.equal(piece.y, 18);
+  assert.equal(lockElapsed, 0);
+  update(1199);
+  assert.equal(occupied(), 0);
+  update(1200);
+  assert.equal(occupied(), 4);
+
+  floorPiece();
+  update(400);
+  key("ArrowLeft");
+  assert.equal(piece.x, 3);
+  assert.equal(lockElapsed, 0);
+  assert.equal(lockResets, 1);
+  update(800);
+  key("ArrowUp");
+  assert.equal(lockResets, 2);
+  update(1299);
+  assert.equal(occupied(), 0);
+  update(1300);
+  assert.equal(occupied(), 4);
+
+  // 失敗した操作とソフトドロップでは待ち時間を延長しない。
+  floorPiece();
+  piece = { shape: [[1,1,1,1]], x: 0, y: 19, color: 1 };
+  update(400);
+  key("ArrowLeft"); key("ArrowUp"); key("ArrowDown");
+  assert.equal(lockElapsed, 400);
+  assert.equal(lockResets, 0);
+  update(500);
+  assert.equal(occupied(), 4);
+
+  floorPiece();
+  for (let i = 1; i <= 15; i++) {
+    update(i * 100);
+    key(i % 2 ? "ArrowLeft" : "ArrowRight");
+  }
+  assert.equal(lockResets, 15);
+  update(1900);
+  key("ArrowRight"); key("ArrowUp");
+  assert.equal(lockElapsed, 400);
+  assert.equal(lockResets, 15);
+  update(2000);
+  assert.equal(occupied(), 4);
+
+  // 上限に達した後で足場から外れても、残り時間と回数を保持。
+  restart();
+  spawnPiece(1);
+  piece.y = 8;
+  board[10][4] = 3;
+  lockResets = 15;
+  update(0); update(400);
+  key("ArrowRight");
+  assert.equal(isGrounded(), false);
+  update(1100);
+  assert.equal(piece.y, 9);
+  assert.equal(lockElapsed, 400);
+  update(7400);
+  assert.equal(piece.y, 18);
+  assert.equal(lockResets, 15);
+  update(7499);
+  assert.equal(occupied(), 1);
+  update(7500);
+  assert.equal(occupied(), 5);
+
+  // 回転によって足場を離れた場合も落下を再開。
+  restart();
+  spawnPiece(0);
+  piece.shape = [[1],[1],[1],[1]];
+  piece.y = 6;
+  board[10][piece.x] = 3;
+  update(0); update(400);
+  key("ArrowUp");
+  assert.equal(isGrounded(), false);
+  assert.equal(lockResets, 1);
+  assert.equal(lockElapsed, 0);
+  update(1100);
+  assert.equal(piece.y, 7);
+
+  floorPiece();
+  update(400);
+  key("KeyP");
+  update(10000);
+  assert.equal(lockElapsed, 400);
+  key("KeyP");
+  update(20000); update(20099);
+  assert.equal(occupied(), 0);
+  update(20100);
+  assert.equal(occupied(), 4);
+
+  floorPiece();
+  update(400);
+  document.hidden = true;
+  update(10000);
+  assert.equal(lockElapsed, 400);
+  document.hidden = false;
+  lastTime = null;
+  update(20000); update(20100);
+  assert.equal(occupied(), 4);
+
+  floorPiece();
+  update(400); key("ArrowLeft"); update(600);
+  key("KeyC");
+  assert.equal(lockElapsed, 0);
+  assert.equal(lockResets, 0);
+  assert.equal(occupied(), 0);
+  key("Space");
+  assert.equal(occupied(), 4);
+  key("KeyC");
+  assert.equal(lockElapsed, 0);
+  assert.equal(lockResets, 0);
+
+  floorPiece();
+  update(400); key("ArrowLeft"); update(600);
+  key("KeyR");
+  assert.equal(lockElapsed, 0);
+  assert.equal(lockResets, 0);
+  assert.equal(dropElapsed, 0);
+  assert.equal(lastTime, null);
+
+  floorPiece();
+  key("Space");
+  assert.equal(occupied(), 4);
+  assert.equal(score, 0);
+
+  // 固定待ち後のライン消去・得点・次のブロック出現。
+  floorPiece();
+  board[19].fill(3);
+  board[19][4] = board[19][5] = 0;
+  update(499);
+  assert.equal(totalLines, 0);
+  update(500);
+  assert.equal(totalLines, 1);
+  assert.equal(score, 100);
+  assert.equal(occupied(), 2);
+
+  floorPiece();
+  board[0].fill(3, 3, 7);
+  update(500);
+  assert.equal(gameOver, true);
+`);
+console.log("PASS: lock delay boundaries, reset limit, airborne transitions, pause, HOLD, restart, hard drop, line clear and game over.");
