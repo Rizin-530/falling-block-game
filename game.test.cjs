@@ -10,6 +10,8 @@ function createGame(storage = {}) {
   const context = new Proxy({}, { get: () => () => {} });
   const sandbox = {
     assert,
+    window: { addEventListener(name, listener) { listeners[name] = listener; } },
+    emit(name) { listeners[name](); },
     document: {
       hidden: false,
       addEventListener(name, listener) { listeners[name] = listener; },
@@ -32,7 +34,11 @@ function createGame(storage = {}) {
     performance: { now: () => vm.runInContext("lastTime ?? 0", sandbox) },
     key(code, repeat = false, modifiers = {}) {
       listeners.keydown({ code, repeat, timeStamp: vm.runInContext("lastTime ?? 0", sandbox), preventDefault() {}, ...modifiers });
+      // 既存ケースのkey()は単押し。長押しテストはpress/releaseで明示する。
+      listeners.keyup({ code, timeStamp: vm.runInContext("lastTime ?? 0", sandbox), ...modifiers });
     },
+    press(code, timeStamp, repeat = false) { listeners.keydown({ code, timeStamp, repeat, preventDefault() {} }); },
+    release(code, timeStamp) { listeners.keyup({ code, timeStamp }); },
   };
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox);
@@ -748,3 +754,88 @@ timingTests(`
   update(610); assert.equal(lockElapsed, 20);
 `);
 console.log("PASS: timestamped input, 490ms landing, lock boundaries, resets, kicks, pause/buttons, HOLD, hard drop, restart and high-level gravity.");
+
+const heldInputTests = createGame();
+heldInputTests(`
+  function fresh() { restart(); spawnPiece(1); update(0); }
+  function cleared() {
+    assert.ok(Object.values(heldKeys).every(value => !value));
+    assert.equal(activeDirection, null);
+    assert.equal(nextHorizontalTime, Infinity);
+    assert.equal(nextSoftDropTime, Infinity);
+  }
+  fresh(); press("ArrowLeft",0); assert.equal(piece.x,3);
+  update(169); assert.equal(piece.x,3);
+  update(170); assert.equal(piece.x,2);
+  update(219); assert.equal(piece.x,2);
+  update(220); assert.equal(piece.x,1);
+  release("ArrowLeft",221); update(400); assert.equal(piece.x,1);
+  cleared();
+  fresh(); press("ArrowRight",0); assert.equal(piece.x,5);
+  for(let t=10;t<=220;t+=10) { press("ArrowRight",t,true); press("ArrowRight",t); update(t); }
+  assert.equal(piece.x,7);
+  update(270); update(320); assert.equal(piece.x,8);
+  release("ArrowRight",320);
+  fresh(); board[0][6]=7; press("ArrowRight",0); update(170); update(220);
+  assert.equal(piece.x,4);
+
+  for (const first of ["ArrowLeft","ArrowRight"]) {
+    fresh();
+    const other=first==="ArrowLeft"?"ArrowRight":"ArrowLeft";
+    const direction=other==="ArrowRight"?1:-1;
+    press(first,0); press(other,10); assert.equal(piece.x,4);
+    update(179); assert.equal(piece.x,4);
+    update(180); assert.equal(piece.x,4+direction);
+    release(other,181); update(350); assert.equal(piece.x,4+direction);
+    update(351); assert.equal(piece.x,4);
+    release(first,352); update(500); assert.equal(piece.x,4); cleared();
+  }
+  fresh(); press("ArrowDown",0); assert.equal(piece.y,1); assert.equal(score,1);
+  update(39); assert.equal(piece.y,1);
+  update(40); assert.equal(piece.y,2);
+  update(80); assert.equal(piece.y,3); assert.equal(score,3);
+  release("ArrowDown",81);
+  update(780); assert.equal(piece.y,3);
+  update(781); assert.equal(piece.y,4); assert.equal(score,3);
+  fresh(); level=11; press("ArrowDown",0);
+  for(let t=10;t<=200;t+=10) { press("ArrowDown",t,true); update(t); }
+  assert.equal(piece.y,6); assert.equal(score,6);
+  fresh(); piece.y=17; press("ArrowDown",490); update(500);
+  assert.equal(lockElapsed,10);
+  for(let t=540;t<=980;t+=40) update(t);
+  assert.equal(board.flat().filter(Boolean).length,0);
+  update(990); assert.equal(board.flat().filter(Boolean).length,4);
+  assert.equal(score,1);
+
+  fresh(); piece.y=18; press("ArrowLeft",0); update(170);
+  assert.equal(lockResets,2); assert.equal(lockElapsed,0);
+  update(220); update(270); update(320);
+  assert.equal(piece.x,0); assert.equal(lockResets,4);
+  assert.equal(lockElapsed,50); // 壁に当たる繰り返しではリセットしない。
+
+  fresh(); press("ArrowRight",0); update(1000);
+  assert.equal(piece.x,5); // 長い停止の繰り返しをまとめて実行しない。
+  update(1050); assert.equal(piece.x,6);
+
+  fresh(); press("ArrowLeft",0); press("ArrowDown",1);
+  key("KeyP",false,{timeStamp:10}); cleared();
+  update(1000); key("KeyP",false,{timeStamp:1000}); cleared();
+  const x=piece.x; update(1200); assert.equal(piece.x,x);
+  press("ArrowLeft",1210,true); cleared();
+  fresh(); press("ArrowLeft",0); key("KeyR"); cleared();
+  fresh(); press("ArrowLeft",0); board[0].fill(7,3,7); board[1].fill(7,3,7);
+  spawnPiece(1); assert.ok(gameOver); cleared();
+  fresh(); press("ArrowLeft",0); press("ArrowDown",1); emit("blur"); cleared();
+  update(1000); press("ArrowLeft",1001,true); cleared();
+  fresh(); press("ArrowRight",0); document.hidden=true; emit("visibilitychange"); cleared();
+  document.hidden=false; emit("visibilitychange"); update(1000); cleared();
+
+  // 回転・HOLD・Hard DropはOSの繰り返しでは再発動しない。
+  fresh(); press("ArrowUp",0); const rotation=piece.rotation;
+  press("ArrowUp",10,true); assert.equal(piece.rotation,rotation);
+  press("KeyC",20); const held=heldType; const color=piece.color;
+  press("KeyC",30,true); assert.equal(heldType,held); assert.equal(piece.color,color);
+  press("Space",40); const snapshot=JSON.stringify(board);
+  press("Space",50,true); assert.equal(JSON.stringify(board),snapshot);
+`);
+console.log("PASS: DAS/ARR, repeat independence, release, both directions, soft drop, lock timing, lifecycle resets and delayed frames.");

@@ -6,6 +6,21 @@ const CELL = 30;
 const DROP_INTERVAL = 700;
 const LOCK_DELAY = 500;
 const MAX_LOCK_RESETS = 15;
+const HORIZONTAL_DAS = 170;
+const HORIZONTAL_ARR = 50;
+const SOFT_DROP_INTERVAL = 40;
+const MAX_INPUT_CATCHUP = 250;
+const heldKeys = { ArrowLeft: false, ArrowRight: false, ArrowDown: false };
+let activeDirection = null;
+let nextHorizontalTime = Infinity;
+let nextSoftDropTime = Infinity;
+
+function clearHeldKeys() {
+  if (heldKeys.ArrowDown) dropElapsed = 0;
+  for (const code of Object.keys(heldKeys)) heldKeys[code] = false;
+  activeDirection = null;
+  nextHorizontalTime = nextSoftDropTime = Infinity;
+}
 const SHAPES = [
   [[1, 1, 1, 1]],                 // I
   [[1, 1], [1, 1]],               // O
@@ -92,6 +107,7 @@ function spawnPiece(type = upcomingType) {
   lockResets = 0;
   if (collides(shape, piece.x, piece.y)) {
     gameOver = true;
+    clearHeldKeys();
     statusElement.textContent = "ゲームオーバー — R またはボタンで再開";
     pauseButton.disabled = true;
   }
@@ -126,6 +142,7 @@ function togglePause(time = performance.now()) {
   advanceTime(time);
   if (gameOver) return;
   paused = !paused;
+  clearHeldKeys();
   statusElement.textContent = paused ? "一時停止中" : "プレイ中";
   pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
 }
@@ -288,6 +305,7 @@ function draw() {
 }
 
 function restart() {
+  clearHeldKeys();
   board = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
   score = 0;
   gameOver = false;
@@ -313,6 +331,7 @@ document.addEventListener("keydown", event => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyR", "KeyC", "KeyP"].includes(event.code)) return;
   event.preventDefault();
+  if (event.repeat || heldKeys[event.code]) return;
   if (event.code === "KeyR") {
     if (!event.repeat) restart();
     return;
@@ -325,6 +344,14 @@ document.addEventListener("keydown", event => {
   // 入力前の時間は入力前の姿勢に適用し、着地・リセット前の時間を混ぜない。
   advanceTime(event.timeStamp);
   if (gameOver) return;
+  if (event.code in heldKeys) {
+    heldKeys[event.code] = true;
+    if (event.code === "ArrowDown") nextSoftDropTime = lastTime + SOFT_DROP_INTERVAL;
+    else {
+      activeDirection = event.code;
+      nextHorizontalTime = lastTime + HORIZONTAL_DAS;
+    }
+  }
   switch (event.code) {
     case "ArrowLeft": move(-1, 0); break;
     case "ArrowRight": move(1, 0); break;
@@ -336,12 +363,53 @@ document.addEventListener("keydown", event => {
   draw();
 });
 document.getElementById("restart").addEventListener("click", restart);
+document.addEventListener("keyup", event => {
+  if (!(event.code in heldKeys) || !heldKeys[event.code]) return;
+  advanceTime(event.timeStamp);
+  heldKeys[event.code] = false;
+  if (event.code === "ArrowDown") {
+    nextSoftDropTime = Infinity;
+    dropElapsed = 0;
+  } else if (activeDirection === event.code) {
+    const other = event.code === "ArrowLeft" ? "ArrowRight" : "ArrowLeft";
+    activeDirection = heldKeys[other] ? other : null;
+    nextHorizontalTime = activeDirection ? lastTime + HORIZONTAL_DAS : Infinity;
+  }
+});
 pauseButton.addEventListener("click", event => togglePause(event.timeStamp));
 
 // 別タブから戻ったときに経過時間分が一気に落ちるのを防ぐ。
-document.addEventListener("visibilitychange", () => { lastTime = null; });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) clearHeldKeys();
+  lastTime = null;
+});
+window.addEventListener("blur", () => { clearHeldKeys(); lastTime = null; });
 
 function advanceTime(time) {
+  if (lastTime !== null && time - lastTime > MAX_INPUT_CATCHUP) {
+    // 長い描画停止後に、溜まった横移動・下移動を一気に実行しない。
+    if (activeDirection) nextHorizontalTime = time + HORIZONTAL_ARR;
+    if (heldKeys.ArrowDown) nextSoftDropTime = time + SOFT_DROP_INTERVAL;
+  }
+  while (!paused && !gameOver && !document.hidden) {
+    const due = Math.min(nextHorizontalTime, nextSoftDropTime);
+    if (due > time) break;
+    advanceSimulation(due);
+    if (gameOver) break;
+    if (nextHorizontalTime === due) {
+      move(activeDirection === "ArrowLeft" ? -1 : 1, 0);
+      nextHorizontalTime += HORIZONTAL_ARR;
+    }
+    if (nextSoftDropTime === due) {
+      stepDown(true);
+      nextSoftDropTime += SOFT_DROP_INTERVAL;
+    }
+    draw();
+  }
+  advanceSimulation(time);
+}
+
+function advanceSimulation(time) {
   if (lastTime === null) lastTime = time;
   // 同じフレーム内で入力が先に処理されても時間を巻き戻さない。
   time = Math.max(time, lastTime);
@@ -359,6 +427,7 @@ function advanceTime(time) {
         }
         break;
       }
+      if (heldKeys.ArrowDown) break;
       const elapsed = Math.min(remaining, dropInterval() - dropElapsed);
       dropElapsed += elapsed;
       remaining -= elapsed;
