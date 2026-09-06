@@ -387,9 +387,9 @@ window.addEventListener("blur", () => { clearHeldKeys(); lastTime = null; });
 
 function advanceTime(time) {
   if (lastTime !== null && time - lastTime > MAX_INPUT_CATCHUP) {
-    // 長い描画停止後に、溜まった横移動・下移動を一気に実行しない。
-    if (activeDirection) nextHorizontalTime = time + HORIZONTAL_ARR;
-    if (heldKeys.ArrowDown) nextSoftDropTime = time + SOFT_DROP_INTERVAL;
+    // 古い繰り返しは現在時刻の1回にまとめ、低更新頻度でも入力を進める。
+    if (activeDirection && nextHorizontalTime <= time) nextHorizontalTime = time;
+    if (heldKeys.ArrowDown && nextSoftDropTime <= time) nextSoftDropTime = time;
   }
   while (!paused && !gameOver && !document.hidden) {
     const due = Math.min(nextHorizontalTime, nextSoftDropTime);

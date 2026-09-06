@@ -814,8 +814,8 @@ heldInputTests(`
   assert.equal(lockElapsed,50); // 壁に当たる繰り返しではリセットしない。
 
   fresh(); press("ArrowRight",0); update(1000);
-  assert.equal(piece.x,5); // 長い停止の繰り返しをまとめて実行しない。
-  update(1050); assert.equal(piece.x,6);
+  assert.equal(piece.x,6); // 長い停止の繰り返しは復帰時の1回にまとめる。
+  update(1050); assert.equal(piece.x,7);
 
   fresh(); press("ArrowLeft",0); press("ArrowDown",1);
   key("KeyP",false,{timeStamp:10}); cleared();
@@ -839,3 +839,94 @@ heldInputTests(`
   press("Space",50,true); assert.equal(JSON.stringify(board),snapshot);
 `);
 console.log("PASS: DAS/ARR, repeat independence, release, both directions, soft drop, lock timing, lifecycle resets and delayed frames.");
+
+const slowFrameTests = createGame();
+slowFrameTests(`
+  function fresh() { restart(); spawnPiece(1); update(0); }
+  function occupied() { return board.flat().filter(Boolean).length; }
+  // 約60fpsでもDAS/ARRとソフトドロップの時刻は従来どおり。
+  fresh(); press("ArrowRight",0); press("ArrowDown",0);
+  for (let t=16;t<=240;t+=16) {
+    update(t);
+    assert.equal(piece.x, 5 + (t<170 ? 0 : 1+Math.floor((t-170)/50)));
+    assert.equal(piece.y, 1+Math.floor(t/40));
+    assert.equal(score,piece.y);
+  }
+  // 250msまでは通常の取り戻し、超過時は各入力1回に限定。
+  for (const gap of [249,250,251]) {
+    fresh(); press("ArrowRight",0); press("ArrowDown",0); update(gap);
+    assert.equal(piece.x,gap<=250 ? 7 : 6);
+    assert.equal(piece.y,gap<=250 ? 7 : 2);
+    assert.equal(score,piece.y);
+    const x=piece.x, y=piece.y;
+    update(gap+50);
+    assert.ok(piece.x>x);
+    assert.ok(piece.y>y);
+  }
+  fresh(); level=11; press("ArrowDown",0);
+  for(let t=300;t<=3000;t+=300) {
+    update(t);
+    assert.equal(piece.y,1+t/300);
+    assert.equal(score,piece.y); // 通常落下との二重実行なし。
+  }
+  release("ArrowDown",3000); update(3099); assert.equal(piece.y,11);
+  update(3100); assert.equal(piece.y,12); assert.equal(score,11);
+  for (const code of ["ArrowLeft","ArrowRight"]) {
+    fresh(); const direction=code==="ArrowLeft"?-1:1;
+    press(code,0);
+    for(let t=300;t<=3000;t+=300) {
+      update(t);
+      assert.equal(piece.x,Math.max(0,Math.min(8,4+direction*(1+t/300))));
+      assert.ok(!collides(piece.shape,piece.x,piece.y));
+    }
+    release(code,3000); const x=piece.x; update(3300); assert.equal(piece.x,x);
+  }
+  fresh(); press("ArrowRight",0); board[0][7]=7;
+  update(300); assert.equal(piece.x,5); // 固定ブロックを越えない。
+  fresh(); press("ArrowRight",0); press("ArrowDown",0); update(1000);
+  assert.deepEqual([piece.x,piece.y,score],[6,2,2]);
+  update(1039); assert.equal(piece.y,2);
+  update(1040); assert.equal(piece.y,3);
+  update(1049); assert.equal(piece.x,6);
+  update(1050); assert.equal(piece.x,7);
+
+  // 遅い更新で着地した瞬間には、着地前の時間を加えない。
+  fresh(); piece.y=16; press("ArrowDown",0); update(300);
+  assert.equal(piece.y,18); assert.equal(lockElapsed,0);
+  update(600); assert.equal(lockElapsed,300); assert.equal(score,2);
+  update(799); assert.equal(lockElapsed,499); assert.equal(occupied(),0);
+  release("ArrowDown",799);
+  update(800); assert.equal(occupied(),4); assert.equal(score,2);
+  fresh(); piece.y=18; press("ArrowLeft",0);
+  for(const t of [300,600,900]) { update(t); assert.equal(lockElapsed,0); }
+  assert.equal(piece.x,0); assert.equal(lockResets,4);
+  update(1200); assert.equal(lockElapsed,300); assert.equal(lockResets,4);
+  update(1399); assert.equal(occupied(),0);
+  update(1400); assert.equal(occupied(),4);
+  fresh(); piece.y=18; lockResets=15; press("ArrowLeft",0); update(300);
+  assert.equal(lockElapsed,300); assert.equal(lockResets,15);
+  update(500); assert.equal(occupied(),4);
+  // 床Kickの直前まで時間を進め、成功時にだけ固定待ちをリセット。
+  fresh(); spawnPiece(2); piece.y=18; press("ArrowDown",0); update(300);
+  key("ArrowUp",false,{timeStamp:310});
+  assert.deepEqual([piece.x,piece.y,piece.rotation],[2,17,1]);
+  assert.equal(lockElapsed,0); assert.equal(lockResets,1);
+  update(610); assert.equal(lockElapsed,300);
+  update(809); assert.equal(occupied(),0);
+  update(810); assert.equal(occupied(),4);
+
+  for(const action of ["pause","restart","over","blur","hidden"]) {
+    fresh(); press("ArrowRight",0); press("ArrowDown",0); update(300);
+    if(action==="pause") { key("KeyP"); update(900); key("KeyP"); }
+    if(action==="restart") key("KeyR");
+    if(action==="over") { board[0].fill(7); board[1].fill(7); spawnPiece(1); assert.ok(gameOver); }
+    if(action==="blur") emit("blur");
+    if(action==="hidden") { document.hidden=true; emit("visibilitychange"); document.hidden=false; emit("visibilitychange"); }
+    assert.ok(Object.values(heldKeys).every(value=>!value));
+    assert.equal(activeDirection,null);
+    assert.equal(nextHorizontalTime,Infinity); assert.equal(nextSoftDropTime,Infinity);
+    const x=piece.x, points=score; update(1200);
+    assert.equal(piece.x,x); assert.equal(score,points);
+  }
+`);
+console.log("PASS: normal frames, 249/250/251ms boundary, sustained 300ms frames, single stall recovery, lock timing/kicks and lifecycle resets.");
