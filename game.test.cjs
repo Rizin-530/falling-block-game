@@ -930,3 +930,54 @@ slowFrameTests(`
   }
 `);
 console.log("PASS: normal frames, 249/250/251ms boundary, sustained 300ms frames, single stall recovery, lock timing/kicks and lifecycle resets.");
+
+// 別々のVMが同じ保存領域を使い、他画面の更新を知らない状態を再現する。
+const highScoreKey = "falling-block-high-score";
+for (const [initial, points, expected] of [[undefined,100,100],["100",500,500],["500",100,500]]) {
+  const shared = initial === undefined ? {} : { [highScoreKey]: initial };
+  createGame(shared)(`addScore(${points}); assert.equal(score,${points}); assert.equal(highScore,${expected});`);
+  assert.equal(shared[highScoreKey],String(expected));
+}
+for (const sequence of [
+  [[0,1000,1000],[1,100,1000]],
+  [[0,100,100],[1,1000,1000]],
+  [[0,500,500],[1,300,500],[0,800,800],[1,600,800],[0,1200,1200]],
+]) {
+  const shared = { [highScoreKey]: "0", unrelated: "unchanged" };
+  const games = [createGame(shared),createGame(shared)];
+  for (const [tab,points,expected] of sequence) {
+    games[tab](`restart(); addScore(${points}); assert.equal(score,${points});`);
+    assert.equal(shared[highScoreKey],String(expected));
+  }
+  assert.equal(shared.unrelated,"unchanged");
+}
+const sharedDisplay = {};
+const tabA = createGame(sharedDisplay), tabB = createGame(sharedDisplay);
+tabA("addScore(1000)");
+tabB("addScore(100); assert.equal(highScore,1000); assert.equal(Number(highScoreElement.textContent),1000); restart(); assert.equal(score,0); assert.equal(highScore,1000)");
+// 読み直しで大きい記録を見つけた場合、書き込み自体を行わない。
+const writes = [];
+const tracked = new Proxy({}, { set(target,key,value) { writes.push(value); target[key]=value; return true; } });
+const first = createGame(tracked), second = createGame(tracked);
+first("addScore(1000)"); second("addScore(100)");
+assert.deepEqual(writes,["1000"]);
+// 起動後に保存値が不正になった場合も、保存直前の検証を通す。
+for (const value of ["", "bad", "-1", "Infinity", "1.5", "9007199254740992"]) {
+  const shared = {};
+  const game = createGame(shared);
+  shared[highScoreKey] = value;
+  game("addScore(100); assert.equal(highScore,100); assert.equal(Number(highScoreElement.textContent),100)");
+  assert.equal(shared[highScoreKey],"100");
+}
+const writeFailure = new Proxy({}, { set() { throw Error("Write blocked"); } });
+createGame(writeFailure)("addScore(100); assert.equal(score,100); assert.equal(highScore,100); assert.equal(Number(highScoreElement.textContent),100); restart(); assert.equal(score,0); assert.equal(highScore,100); hardDrop(); assert.ok(score>0)");
+let failRead = false, unexpectedWrites = 0;
+const readFailure = new Proxy({}, {
+  get() { if(failRead) throw Error("Read blocked"); return "0"; },
+  set() { unexpectedWrites++; return true; },
+});
+const readFailureGame = createGame(readFailure);
+failRead = true;
+readFailureGame("addScore(100); assert.equal(highScore,100); assert.equal(Number(highScoreElement.textContent),100); restart(); assert.equal(score,0)");
+assert.equal(unexpectedWrites,0);
+console.log("PASS: shared high-score storage, stale tabs, update order, monotonic records, display, invalid values and read/write failures.");

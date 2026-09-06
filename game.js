@@ -226,12 +226,16 @@ function addScore(points) {
   scoreElement.textContent = score;
   if (score > highScore) {
     highScore = score;
-    highScoreElement.textContent = highScore;
     try {
-      localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
+      // 他のタブの記録を、起動時に読んだ古い値で上書きしない。
+      const saved = Number(localStorage.getItem(HIGH_SCORE_KEY));
+      const savedScore = Number.isSafeInteger(saved) && saved >= 0 ? saved : 0;
+      highScore = Math.max(highScore, savedScore);
+      if (highScore > savedScore) localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
     } catch {
       // 保存できない場合も、このページ内では記録を維持する。
     }
+    highScoreElement.textContent = highScore;
   }
 }
 
