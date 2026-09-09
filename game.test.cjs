@@ -272,9 +272,10 @@ review(`
       const distance = y - piece.y;
       const previousScore = score;
       const previousLines = totalLines;
+      const previousLevel = level;
       key("Space");
       assert.equal(score - previousScore,
-        distance * 2 + [0, 100, 300, 500, 800][totalLines - previousLines]);
+        distance * 2 + [0, 100, 300, 500, 800][totalLines - previousLines] * previousLevel);
       drops++;
     } else {
       key(["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyC", "KeyP", "KeyP"][action]);
@@ -1287,3 +1288,52 @@ nextQueueTests(`
   }
 `);
 console.log("PASS: NEXT5 order, 10,000 fixed pieces, seeded 7-bag equivalence, bag boundary, HOLD, restart, top out, pause and preview centering.");
+
+const levelScoreStorage = {};
+const levelScoreTests = createGame(levelScoreStorage);
+levelScoreTests(`
+  function prepareClear(lines, startLevel, startLines=(startLevel-1)*10) {
+    restart(); spawnPiece(0);
+    level=startLevel; totalLines=startLines;
+    piece.rotation=1; piece.shape=ROTATIONS[0][1]; piece.x=2; piece.y=TOTAL_ROWS-4;
+    for(let y=TOTAL_ROWS-lines;y<TOTAL_ROWS;y++) { board[y].fill(7); board[y][4]=0; }
+  }
+  const expectedByLevel=[[1,[100,300,500,800]],[2,[200,600,1000,1600]],[5,[500,1500,2500,4000]]];
+  for(const [startLevel,points] of expectedByLevel) {
+    for(let lines=1;lines<=4;lines++) {
+      prepareClear(lines,startLevel); lockPiece();
+      assert.equal(score,points[lines-1]);
+      assert.equal(Number(scoreElement.textContent),score);
+      assert.equal(totalLines,(startLevel-1)*10+lines);
+      assert.equal(level,startLevel);
+      assert.equal(board.flat().filter(Boolean).length,4-lines);
+    }
+  }
+  for(const [startLines,startLevel,lines,points,newLines,newLevel] of [
+    [9,1,1,100,10,2], [8,1,2,300,10,2], [19,2,4,1600,23,3],
+  ]) {
+    prepareClear(lines,startLevel,startLines); lockPiece();
+    assert.equal(score,points); assert.equal(totalLines,newLines); assert.equal(level,newLevel);
+    assert.equal(Number(levelElement.textContent),newLevel);
+    assert.equal(dropInterval(),newLevel===2 ? 640 : 580);
+  }
+  // 高Levelのドロップ得点と0行固定。倍率は適用しない。
+  restart(); spawnPiece(1); level=5; totalLines=40;
+  for(let i=0;i<3;i++) key("ArrowDown");
+  assert.equal(score,3);
+  piece.y=TOTAL_ROWS-2; lockPiece(); assert.equal(score,3); assert.equal(totalLines,40);
+  restart(); spawnPiece(1); level=5; totalLines=40; piece.y=TOTAL_ROWS-12;
+  assert.equal(ghostY()-piece.y,10); key("Space"); assert.equal(score,20); assert.equal(totalLines,40);
+  prepareClear(0,5); lockPiece(); assert.equal(score,0);
+  // 同じHard Dropで10マス下降＋2行消去。
+  prepareClear(2,3); piece.y-=10;
+  assert.equal(ghostY()-piece.y,10); key("Space");
+  assert.equal(score,920); assert.equal(totalLines,22); assert.equal(level,3);
+  // 倍率付き得点も既存の表示・保存経路へ流す。
+  prepareClear(4,5); lockPiece(); assert.equal(highScore,4000);
+  assert.equal(Number(highScoreElement.textContent),4000);
+  restart(); assert.equal(score,0); assert.equal(highScore,4000);
+`);
+assert.equal(levelScoreStorage["falling-block-high-score"],"4000");
+createGame(levelScoreStorage)("assert.equal(highScore,4000)");
+console.log("PASS: line scores at levels 1/2/5, pre-clear level boundaries, zero clears, unscaled drops, combined score and high-score persistence.");

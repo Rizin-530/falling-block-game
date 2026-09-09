@@ -5,6 +5,7 @@ const VISIBLE_ROWS = 20;
 const HIDDEN_ROWS = 20;
 const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
 const NEXT_COUNT = 5;
+const LINE_CLEAR_SCORES = [0, 100, 300, 500, 800];
 // piece.yとboardは内部座標。Spawn枠は表示最上段の1行上。
 const SPAWN_Y = HIDDEN_ROWS - 1;
 const CELL = 30;
@@ -271,7 +272,8 @@ function lockPiece() {
   const cleared = TOTAL_ROWS - remaining.length;
   while (remaining.length < TOTAL_ROWS) remaining.unshift(Array(COLS).fill(0));
   board = remaining;
-  addScore([0, 100, 300, 500, 800][cleared]);
+  // 今回の消去によるLevel上昇より前の倍率を使う。
+  addScore(LINE_CLEAR_SCORES[cleared] * level);
   totalLines += cleared;
   level = Math.floor(totalLines / 10) + 1;
   levelElement.textContent = level;
