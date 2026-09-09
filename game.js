@@ -83,6 +83,10 @@ let lockElapsed = 0;
 let lockResets = 0;
 let lastTime = null;
 let bag = [];
+// nullは最後の成功した動きが回転ではないことを表す。候補番号は0始まり。
+let lastRotationKick = null;
+// 確定済みの結果は次のSpawnでも保持し、進行中ピースの回転資格とは分離する。
+let lastLockResult = null;
 
 // 7種類を1回ずつ使う順番をシャッフルする。
 function nextType() {
@@ -106,6 +110,7 @@ function collides(shape, x, y) {
 }
 
 function spawnPiece(type = nextQueue[0]) {
+  lastRotationKick = null;
   const shape = ROTATIONS[type][0];
   piece = { shape, rotation: 0, x: Math.floor((COLS - shape[0].length) / 2), y: SPAWN_Y, color: type + 1 };
   dropElapsed = 0;
@@ -115,6 +120,7 @@ function spawnPiece(type = nextQueue[0]) {
 }
 
 function endGame() {
+  lastRotationKick = null;
   gameOver = true;
   clearHeldKeys();
   statusElement.textContent = "ゲームオーバー — R またはボタンで再開";
@@ -195,6 +201,8 @@ function move(dx, dy) {
   const wasGrounded = isGrounded();
   piece.x += dx;
   piece.y += dy;
+  // Gravity・Dropを含む実移動で解除。衝突した入力ではここへ到達しない。
+  if (dx !== 0 || dy !== 0) lastRotationKick = null;
   if (dx !== 0 && wasGrounded) resetLockDelay();
   return true;
 }
@@ -228,13 +236,14 @@ function rotate(direction = 1) {
   const transition = `${piece.rotation}>${rotation}`;
   const kicks = piece.color === 2 ? [[0,0]]
     : (piece.color === 1 ? I_KICKS : COMMON_KICKS)[transition];
-  for (const [dx, dy] of kicks) {
+  for (const [kickIndex, [dx, dy]] of kicks.entries()) {
     if (collides(rotated, piece.x + dx, piece.y + dy)) continue;
     const wasGrounded = isGrounded();
     piece.x += dx;
     piece.y += dy;
     piece.shape = rotated;
     piece.rotation = rotation;
+    lastRotationKick = kickIndex;
     if (wasGrounded) resetLockDelay();
     return;
   }
@@ -258,7 +267,22 @@ function addScore(points) {
   }
 }
 
+// TetrisWikiの3-corner / 前側2角方式。第5候補の回転はMiniからFullへ。
+// https://tetris.wiki/T-Spin （最新公式Guideline全文の保証ではない）
+function detectTSpin() {
+  if (piece.color !== 3 || lastRotationKick === null) return "NONE";
+  const center = (piece.shape.length - 1) / 2;
+  // 左上・右上・右下・左下。collidesで内部盤面の境界も占有扱いにする。
+  const corners = [[-1,-1], [1,-1], [1,1], [-1,1]].map(([dx, dy]) =>
+    collides([[1]], piece.x + center + dx, piece.y + center + dy));
+  if (corners.filter(Boolean).length < 3) return "NONE";
+  // 状態0:上、1:右、2:下、3:左がTの突き出す側。
+  const frontFilled = corners[piece.rotation] && corners[(piece.rotation + 1) % 4];
+  return frontFilled || lastRotationKick === 4 ? "T_SPIN" : "T_SPIN_MINI";
+}
+
 function lockPiece() {
+  lastLockResult = { spin: detectTSpin(), lines: 0 };
   // 消去前の固定位置で判定。一部が見えていればLock Outにしない。
   const lockOut = piece.shape.every((row, dy) => row.every(cell => !cell || piece.y + dy < HIDDEN_ROWS));
   piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
@@ -270,6 +294,7 @@ function lockPiece() {
   }
   const remaining = board.filter(row => row.some(cell => cell === 0));
   const cleared = TOTAL_ROWS - remaining.length;
+  lastLockResult.lines = cleared;
   while (remaining.length < TOTAL_ROWS) remaining.unshift(Array(COLS).fill(0));
   board = remaining;
   // 今回の消去によるLevel上昇より前の倍率を使う。
@@ -337,6 +362,7 @@ function draw() {
 }
 
 function restart() {
+  lastLockResult = null;
   clearHeldKeys();
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
   score = 0;

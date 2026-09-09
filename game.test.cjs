@@ -1337,3 +1337,151 @@ levelScoreTests(`
 assert.equal(levelScoreStorage["falling-block-high-score"],"4000");
 createGame(levelScoreStorage)("assert.equal(highScore,4000)");
 console.log("PASS: line scores at levels 1/2/5, pre-clear level boundaries, zero clears, unscaled drops, combined score and high-score persistence.");
+
+const spinTests = createGame();
+spinTests(`
+  const cornerOffsets = [[0,0],[2,0],[2,2],[0,2]];
+  function setupSpin(rotation=0, corners=[0,1,2], direction=1, x=3, y=35) {
+    restart(); spawnPiece(2);
+    piece.x=x; piece.y=y;
+    piece.rotation=(rotation-direction+4)%4;
+    piece.shape=ROTATIONS[2][piece.rotation];
+    for(const index of corners) {
+      const [dx,dy]=cornerOffsets[index];
+      if(y+dy>=0 && y+dy<TOTAL_ROWS && x+dx>=0 && x+dx<COLS) board[y+dy][x+dx]=7;
+    }
+    assert.equal(collides(piece.shape,piece.x,piece.y),false);
+    key(direction===1 ? "ArrowUp" : "KeyZ");
+    assert.equal(piece.rotation,rotation);
+    assert.equal(lastRotationKick,0);
+  }
+  // 全方向・左右回転・全16通りの角。期待値は向きごとの明示表。
+  const frontPairs=[[0,1],[1,2],[2,3],[3,0]];
+  for(const direction of [1,-1]) for(let rotation=0;rotation<4;rotation++) {
+    for(let mask=0;mask<16;mask++) {
+      const corners=[0,1,2,3].filter(i=>mask & (1<<i));
+      setupSpin(rotation,corners,direction);
+      const expected=corners.length<3 ? "NONE"
+        : frontPairs[rotation].every(i=>corners.includes(i)) ? "T_SPIN" : "T_SPIN_MINI";
+      assert.equal(detectTSpin(),expected);
+      lastRotationKick=null;
+      assert.equal(detectTSpin(),"NONE"); // 同じ配置でも回転履歴なし
+      lastRotationKick=0; lockPiece();
+      assert.deepEqual(lastLockResult,{spin:expected,lines:0});
+    }
+  }
+  for(const type of [0,1,3,4,5,6]) {
+    restart(); spawnPiece(type); rotate(); assert.equal(detectTSpin(),"NONE");
+  }
+  setupSpin(0,[0,2,3]);
+  board[36].fill(7); for(let x=3;x<=5;x++) board[36][x]=0;
+  level=5; totalLines=40; hardDrop();
+  assert.deepEqual(lastLockResult,{spin:"T_SPIN_MINI",lines:1});
+  assert.equal(score,500); assert.equal(totalLines,41);
+  setupSpin();
+  const beforeGhost=lastRotationKick;
+  ghostY(); draw(); assert.equal(lastRotationKick,beforeGhost);
+  assert.equal(move(-1,0),false); // 固定ブロックに阻まれる
+  assert.equal(lastRotationKick,0);
+  stepDown(true); assert.equal(score,0); assert.equal(lastRotationKick,0);
+  assert.equal(ghostY(),piece.y);
+  hardDrop(); assert.deepEqual(lastLockResult,{spin:"T_SPIN",lines:0});
+  assert.equal(score,0); assert.equal(lastRotationKick,null);
+
+  for(const dx of [-1,1]) {
+    setupSpin(0,[]); assert.equal(move(dx,0),true);
+    assert.equal(lastRotationKick,null);
+    lockPiece(); assert.equal(lastLockResult.spin,"NONE");
+  }
+  setupSpin(0,[]); stepDown(true);
+  assert.equal(lastRotationKick,null); assert.equal(score,1);
+  setupSpin(0,[]); update(0); update(700);
+  assert.equal(piece.y,36); assert.equal(lastRotationKick,null); assert.equal(score,0);
+  setupSpin(0,[]); const distance=ghostY()-piece.y;
+  assert.ok(distance>0); hardDrop();
+  assert.equal(lastLockResult.spin,"NONE"); assert.equal(score,distance*2);
+
+  // 全候補失敗では直前の成功回転とロック時間を保持。
+  setupSpin(0,[0,1,2,3]);
+  for(let y=32;y<40;y++) for(let x=0;x<COLS;x++) {
+    const dx=x-piece.x,dy=y-piece.y;
+    if(!piece.shape[dy]?.[dx]) board[y][x]=7;
+  }
+  lockElapsed=123; lockResets=4;
+  const blockedPiece=JSON.stringify(piece);
+  for(const direction of [1,-1]) {
+    rotate(direction); assert.equal(JSON.stringify(piece),blockedPiece);
+    assert.equal(lastRotationKick,0); assert.equal(lockElapsed,123); assert.equal(lockResets,4);
+  }
+
+  // 実際に第5候補を通る0→1 / 0→3。左右を鏡写しにした盤面。
+  function setupFifthKick(lines=3, mirror=false, mini=false) {
+    restart(); spawnPiece(2); level=3; totalLines=20;
+    piece.x=mirror ? 3 : 4; piece.y=33;
+    const targetX=mirror ? 4 : 3, rotation=mirror ? 3 : 1;
+    const target=ROTATIONS[2][rotation];
+    for(let dy=0;dy<3;dy++) for(let x=0;x<COLS;x++) {
+      if(!target[dy][x-targetX]) board[35+dy][x]=7;
+    }
+    // 消去本数だけを変えるため、Tから離れた列に穴を開ける。
+    for(let row=0;row<3-lines;row++) board[35+row][0]=0;
+    board[33][mirror ? 5 : 4]=7;
+    if(mini) board[37][mirror ? 4 : 5]=0;
+    board[38][targetX+1]=7;
+    assert.equal(collides(piece.shape,piece.x,piece.y),false);
+    key(mirror ? "KeyZ" : "ArrowUp");
+    assert.equal(piece.rotation,rotation); assert.equal(piece.x,targetX); assert.equal(piece.y,35);
+    assert.equal(lastRotationKick,4);
+  }
+  for(const mirror of [false,true]) {
+    setupFifthKick(0,mirror,true);
+    assert.equal(detectTSpin(),"T_SPIN");
+    lastRotationKick=0; assert.equal(detectTSpin(),"T_SPIN_MINI");
+    lastRotationKick=4;
+    assert.equal(ghostY(),35); hardDrop();
+    assert.equal(lastLockResult.spin,"T_SPIN");
+  }
+  for(let lines=0;lines<=3;lines++) {
+    setupFifthKick(lines);
+    const snapshot=JSON.stringify(board);
+    assert.equal(detectTSpin(),"T_SPIN"); assert.equal(JSON.stringify(board),snapshot);
+    hardDrop();
+    assert.deepEqual(lastLockResult,{spin:"T_SPIN",lines});
+    assert.equal(score,[0,100,300,500][lines]*3);
+    assert.equal(totalLines,20+lines); assert.equal(level,3);
+    assert.equal(lastRotationKick,null);
+  }
+
+  // 表示開始行は壁ではない。内部最上端・左右壁・床は占有扱い。
+  setupSpin(0,[],1,3,HIDDEN_ROWS-1); assert.equal(detectTSpin(),"NONE");
+  setupSpin(0,[0,1,2],1,3,HIDDEN_ROWS-1); assert.equal(detectTSpin(),"T_SPIN");
+  for(const [rotation,x,y,corner] of [[1,-1,30,1],[3,8,30,0],[0,3,38,0],[2,3,-1,2]]) {
+    restart(); spawnPiece(2); piece.rotation=rotation; piece.shape=ROTATIONS[2][rotation];
+    piece.x=x; piece.y=y;
+    const [dx,dy]=cornerOffsets[corner]; board[y+dy][x+dx]=7;
+    assert.equal(collides(piece.shape,x,y),false);
+    lastRotationKick=0;
+    assert.equal(detectTSpin(),"T_SPIN_MINI");
+  }
+
+  setupSpin(); update(0); update(499);
+  assert.equal(lastLockResult,null); update(500);
+  assert.deepEqual(lastLockResult,{spin:"T_SPIN",lines:0});
+  setupSpin(); lockElapsed=200; lockResets=14;
+  rotate(1); assert.equal(lockElapsed,0); assert.equal(lockResets,15);
+  lockElapsed=100; rotate(-1); assert.equal(lockElapsed,100); assert.equal(lockResets,15);
+  setupSpin(); update(0); togglePause(200); update(1000);
+  assert.equal(lastRotationKick,0); assert.equal(lockElapsed,200);
+  togglePause(1000); update(1300); assert.equal(lastLockResult.spin,"T_SPIN");
+
+  setupSpin(); hold(); assert.equal(lastRotationKick,null);
+  holdUsed=false; hold(); assert.equal(piece.color,3); assert.equal(piece.rotation,0);
+  assert.equal(lastRotationKick,null);
+  setupSpin(); spawnPiece(2); assert.equal(lastRotationKick,null);
+  setupSpin(); endGame(); assert.equal(lastRotationKick,null);
+  restart(); assert.equal(lastRotationKick,null); assert.equal(lastLockResult,null);
+  setupSpin(0,[0,1,2],1,3,10); hardDrop(); // 全マス非表示でLock Out
+  assert.equal(gameOver,true); assert.equal(lastRotationKick,null);
+  assert.deepEqual(lastLockResult,{spin:"T_SPIN",lines:0});
+`);
+console.log("PASS: T-spin/full/mini corners in all orientations, both rotations and fifth kicks, movement history, drops/gravity, 0-3 clears with unchanged scores, internal boundaries, lock delay and lifecycle resets.");
