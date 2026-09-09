@@ -1,7 +1,11 @@
 "use strict";
 
 const COLS = 10;
-const ROWS = 20;
+const VISIBLE_ROWS = 20;
+const HIDDEN_ROWS = 20;
+const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
+// piece.yとboardは内部座標。Spawn枠は表示最上段の1行上。
+const SPAWN_Y = HIDDEN_ROWS - 1;
 const CELL = 30;
 const DROP_INTERVAL = 700;
 const LOCK_DELAY = 500;
@@ -95,22 +99,24 @@ function collides(shape, x, y) {
     if (!cell) return false;
     const bx = x + dx;
     const by = y + dy;
-    return bx < 0 || bx >= COLS || by < 0 || by >= ROWS || board[by][bx] !== 0;
+    return bx < 0 || bx >= COLS || by < 0 || by >= TOTAL_ROWS || board[by][bx] !== 0;
   }));
 }
 
 function spawnPiece(type = upcomingType) {
   const shape = ROTATIONS[type][0];
-  piece = { shape, rotation: 0, x: Math.floor((COLS - shape[0].length) / 2), y: 0, color: type + 1 };
+  piece = { shape, rotation: 0, x: Math.floor((COLS - shape[0].length) / 2), y: SPAWN_Y, color: type + 1 };
   dropElapsed = 0;
   lockElapsed = 0;
   lockResets = 0;
-  if (collides(shape, piece.x, piece.y)) {
-    gameOver = true;
-    clearHeldKeys();
-    statusElement.textContent = "ゲームオーバー — R またはボタンで再開";
-    pauseButton.disabled = true;
-  }
+  if (collides(shape, piece.x, piece.y)) endGame();
+}
+
+function endGame() {
+  gameOver = true;
+  clearHeldKeys();
+  statusElement.textContent = "ゲームオーバー — R またはボタンで再開";
+  pauseButton.disabled = true;
 }
 
 function advancePiece() {
@@ -248,12 +254,18 @@ function addScore(points) {
 }
 
 function lockPiece() {
+  // 消去前の固定位置で判定。一部が見えていればLock Outにしない。
+  const lockOut = piece.shape.every((row, dy) => row.every(cell => !cell || piece.y + dy < HIDDEN_ROWS));
   piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
     if (cell) board[piece.y + dy][piece.x + dx] = piece.color;
   }));
+  if (lockOut) {
+    endGame();
+    return;
+  }
   const remaining = board.filter(row => row.some(cell => cell === 0));
-  const cleared = ROWS - remaining.length;
-  while (remaining.length < ROWS) remaining.unshift(Array(COLS).fill(0));
+  const cleared = TOTAL_ROWS - remaining.length;
+  while (remaining.length < TOTAL_ROWS) remaining.unshift(Array(COLS).fill(0));
   board = remaining;
   addScore([0, 100, 300, 500, 800][cleared]);
   totalLines += cleared;
@@ -278,8 +290,10 @@ function hardDrop() {
 }
 
 function drawCell(x, y, color) {
+  if (y < HIDDEN_ROWS || y >= TOTAL_ROWS) return;
+  const visibleY = y - HIDDEN_ROWS;
   context.fillStyle = COLORS[color];
-  context.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+  context.fillRect(x * CELL + 1, visibleY * CELL + 1, CELL - 2, CELL - 2);
 }
 
 function draw() {
@@ -291,10 +305,10 @@ function draw() {
   for (let x = 0; x <= COLS; x++) {
     context.beginPath();
     context.moveTo(x * CELL, 0);
-    context.lineTo(x * CELL, ROWS * CELL);
+    context.lineTo(x * CELL, VISIBLE_ROWS * CELL);
     context.stroke();
   }
-  for (let y = 0; y <= ROWS; y++) {
+  for (let y = 0; y <= VISIBLE_ROWS; y++) {
     context.beginPath();
     context.moveTo(0, y * CELL);
     context.lineTo(COLS * CELL, y * CELL);
@@ -318,7 +332,7 @@ function draw() {
 
 function restart() {
   clearHeldKeys();
-  board = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
   score = 0;
   gameOver = false;
   paused = false;

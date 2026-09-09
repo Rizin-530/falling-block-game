@@ -7,9 +7,20 @@ const source = fs.readFileSync(`${__dirname}/game.js`, "utf8");
 function createGame(storage = {}) {
   const elements = {};
   const listeners = {};
-  const context = new Proxy({}, { get: () => () => {} });
+  const drawCalls = [];
+  const context = new Proxy({}, {
+    get(target, name) {
+      if (name in target) return target[name];
+      return (...args) => {
+        if (sandbox.captureDraw) drawCalls.push({ name, args, color: target.fillStyle, alpha: target.globalAlpha ?? 1 });
+      };
+    },
+  });
+  const previewContext = new Proxy({}, { get: () => () => {} });
   const sandbox = {
     assert,
+    drawCalls,
+    captureDraw: false,
     window: { addEventListener(name, listener) { listeners[name] = listener; } },
     emit(name) { listeners[name](); },
     document: {
@@ -19,7 +30,7 @@ function createGame(storage = {}) {
         return elements[id] ??= {
           width: id === "board" ? 300 : 120,
           height: id === "board" ? 600 : 80,
-          getContext: () => context,
+          getContext: () => id === "board" ? context : previewContext,
           addEventListener(name, listener) {
             this[name] = (event = { timeStamp: vm.runInContext("lastTime ?? 0", sandbox) }) => listener(event);
           },
@@ -48,36 +59,36 @@ function createGame(storage = {}) {
 const storage = {};
 const run = createGame(storage);
 run(`
-  assert.equal(board.length, 20);
+  assert.equal(board.length, TOTAL_ROWS);
   assert.ok(board.every(row => row.length === 10));
   assert.ok(SHAPES.every(shape => shape.flat().filter(Boolean).length === 4));
   bag = [];
   assert.equal(new Set(Array.from({ length: 7 }, nextType)).size, 7);
   assert.ok(collides([[1]], -1, 0));
   assert.ok(collides([[1]], 10, 0));
-  assert.ok(collides([[1]], 0, 20));
-  board[5][5] = 1;
-  assert.ok(collides([[1]], 5, 5));
+  assert.ok(collides([[1]], 0, TOTAL_ROWS));
+  board[HIDDEN_ROWS + 5][5] = 1;
+  assert.ok(collides([[1]], 5, HIDDEN_ROWS + 5));
 
   restart();
-  piece = { rotation: 0, shape: [[1, 1], [1, 1]], x: 4, y: 0, color: 2 };
+  piece = { rotation: 0, shape: [[1, 1], [1, 1]], x: 4, y: HIDDEN_ROWS + 0, color: 2 };
   const initialX = piece.x;
   key("ArrowLeft"); key("ArrowRight");
   assert.equal(piece.x, initialX);
   const originalPiece = JSON.stringify(piece);
-  assert.equal(ghostY(), 18);
+  assert.equal(ghostY(), HIDDEN_ROWS + 18);
   assert.equal(JSON.stringify(piece), originalPiece);
   key("Space");
   assert.equal(score, 36);
-  assert.equal(board[19][4], 2);
-  assert.equal(board[18][5], 2);
+  assert.equal(board[HIDDEN_ROWS + 19][4], 2);
+  assert.equal(board[HIDDEN_ROWS + 18][5], 2);
 
   restart();
   spawnPiece(0);
   const originalShape = JSON.stringify(piece.shape);
   for (let i = 0; i < 4; i++) key("ArrowUp");
   assert.equal(JSON.stringify(piece.shape), originalShape);
-  piece = { rotation: 1, shape: ROTATIONS[0][1], x: 7, y: 0, color: 1 };
+  piece = { rotation: 1, shape: ROTATIONS[0][1], x: 7, y: HIDDEN_ROWS + 0, color: 1 };
   key("ArrowUp");
   assert.equal(piece.rotation, 2);
   assert.equal(piece.x, 6);
@@ -85,11 +96,11 @@ run(`
   // 1〜4行の同時消去と従来の得点。
   for (let count = 1; count <= 4; count++) {
     restart();
-    for (let y = 20 - count; y < 20; y++) {
+    for (let y = TOTAL_ROWS - count; y < TOTAL_ROWS; y++) {
       board[y].fill(2);
       board[y][4] = 0;
     }
-    piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: 16, color: 1 };
+    piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: HIDDEN_ROWS + 16, color: 1 };
     lockPiece();
     assert.equal(score, [0, 100, 300, 500, 800][count]);
     assert.equal(totalLines, count);
@@ -117,33 +128,33 @@ run(`
   key("ArrowUp"); key("ArrowDown"); key("KeyC");
   assert.equal(piece.color - 1, beforeHold);
   assert.equal(heldType, beforeSwap);
-  assert.equal(piece.y, 0);
+  assert.equal(piece.y, SPAWN_Y + 0);
   assert.equal(JSON.stringify(piece.shape), JSON.stringify(ROTATIONS[beforeHold][0]));
   assert.equal(upcomingType, nextBeforeSwap);
 
   restart();
-  board[10].fill(1);
-  piece = { rotation: 0, shape: [[1, 1], [1, 1]], x: 4, y: 0, color: 2 };
-  assert.equal(ghostY(), 8);
+  board[HIDDEN_ROWS + 10].fill(1);
+  piece = { rotation: 0, shape: [[1, 1], [1, 1]], x: 4, y: HIDDEN_ROWS + 0, color: 2 };
+  assert.equal(ghostY(), HIDDEN_ROWS + 8);
   restart();
   key("ArrowDown");
   assert.equal(score, 1);
-  assert.equal(piece.y, 1);
+  assert.equal(piece.y, SPAWN_Y + 1);
   update(0); update(699);
-  assert.equal(piece.y, 1);
+  assert.equal(piece.y, SPAWN_Y + 1);
   update(700);
-  assert.equal(piece.y, 2);
+  assert.equal(piece.y, SPAWN_Y + 2);
 
   totalLines = 9;
-  board[19].fill(1); board[19][4] = 0;
-  piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: 16, color: 1 };
+  board[HIDDEN_ROWS + 19].fill(1); board[HIDDEN_ROWS + 19][4] = 0;
+  piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: HIDDEN_ROWS + 16, color: 1 };
   lockPiece();
   assert.equal(level, 2);
   assert.equal(dropInterval(), 640);
   update(1339);
-  assert.equal(piece.y, 0);
+  assert.equal(piece.y, SPAWN_Y + 0);
   update(1340);
-  assert.equal(piece.y, 1);
+  assert.equal(piece.y, SPAWN_Y + 1);
   level = 100;
   assert.equal(dropInterval(), 100);
 
@@ -158,11 +169,11 @@ run(`
   pauseButton.click({ timeStamp: 20000 });
   assert.equal(paused, false);
   update(20000); update(20399);
-  assert.equal(piece.y, 0);
+  assert.equal(piece.y, SPAWN_Y + 0);
   update(20400);
-  assert.equal(piece.y, 1);
+  assert.equal(piece.y, SPAWN_Y + 1);
 
-  board[0].fill(1, 3, 7); board[1].fill(1, 3, 7);
+  board[HIDDEN_ROWS + 0].fill(1, 3, 7); board[HIDDEN_ROWS + 1].fill(1, 3, 7);
   spawnPiece();
   assert.ok(gameOver);
   const overState = JSON.stringify([board, piece, score]);
@@ -179,7 +190,7 @@ run(`
   assert.equal(pauseButton.disabled, false);
 
   heldType = 0;
-  board[0].fill(1, 3, 7); board[1].fill(1, 3, 7);
+  board[HIDDEN_ROWS + 0].fill(1, 3, 7); board[HIDDEN_ROWS + 1].fill(1, 3, 7);
   key("KeyC");
   assert.ok(gameOver);
   restart();
@@ -219,11 +230,11 @@ review(`
   level = 11;
   update(0);
   for (let time = 16; time <= 1008; time += 16) update(time);
-  assert.equal(piece.y, 10);
+  assert.equal(piece.y, SPAWN_Y + 10);
   assert.equal(dropElapsed, 8);
   restart();
   update(0); update(1450);
-  assert.equal(piece.y, 2);
+  assert.equal(piece.y, SPAWN_Y + 2);
   assert.equal(dropElapsed, 50);
 `);
 console.log("PASS: shortcut isolation and elapsed-time accuracy.");
@@ -270,8 +281,8 @@ review(`
     }
     time += randomInt(250);
     update(time);
-    assert.equal(board.length, 20);
-    assert.equal(new Set(board).size, 20);
+    assert.equal(board.length, TOTAL_ROWS);
+    assert.equal(new Set(board).size, TOTAL_ROWS);
     assert.ok(board.every(row => row.length === 10 && row.every(cell => Number.isInteger(cell) && cell >= 0 && cell <= 7)));
     if (!gameOver) assert.ok(!collides(piece.shape, piece.x, piece.y));
     assert.ok(Number.isSafeInteger(score));
@@ -292,7 +303,7 @@ review(`
   // 長いフレームでも、新しいブロックへ前の時間を持ち越さない。
   restart();
   update(0); update(100000);
-  assert.equal(piece.y, 0);
+  assert.equal(piece.y, SPAWN_Y + 0);
   assert.equal(dropElapsed, 0);
   assert.equal(board.flat().filter(Boolean).length, 4);
 `);
@@ -303,7 +314,7 @@ lockTests(`
   function floorPiece() {
     restart();
     spawnPiece(1);
-    piece.y = 18;
+    piece.y = HIDDEN_ROWS + 18;
     update(0);
   }
   function occupied() { return board.flat().filter(Boolean).length; }
@@ -321,9 +332,9 @@ lockTests(`
 
   // 自動落下で着地した時点から500msを測る。
   floorPiece();
-  piece.y = 17;
+  piece.y = HIDDEN_ROWS + 17;
   update(700);
-  assert.equal(piece.y, 18);
+  assert.equal(piece.y, HIDDEN_ROWS + 18);
   assert.equal(lockElapsed, 0);
   update(1199);
   assert.equal(occupied(), 0);
@@ -346,7 +357,7 @@ lockTests(`
 
   // 失敗した操作とソフトドロップでは待ち時間を延長しない。
   floorPiece();
-  piece = { rotation: 0, shape: ROTATIONS[0][0], x: 0, y: 18, color: 1 };
+  piece = { rotation: 0, shape: ROTATIONS[0][0], x: 0, y: HIDDEN_ROWS + 18, color: 1 };
   update(400);
   key("ArrowLeft"); key("ArrowDown");
   assert.equal(lockElapsed, 400);
@@ -370,17 +381,17 @@ lockTests(`
   // 上限に達した後で足場から外れても、残り時間と回数を保持。
   restart();
   spawnPiece(1);
-  piece.y = 8;
-  board[10][4] = 3;
+  piece.y = HIDDEN_ROWS + 8;
+  board[HIDDEN_ROWS + 10][4] = 3;
   lockResets = 15;
   update(0); update(400);
   key("ArrowRight");
   assert.equal(isGrounded(), false);
   update(1100);
-  assert.equal(piece.y, 9);
+  assert.equal(piece.y, HIDDEN_ROWS + 9);
   assert.equal(lockElapsed, 400);
   update(7400);
-  assert.equal(piece.y, 18);
+  assert.equal(piece.y, HIDDEN_ROWS + 18);
   assert.equal(lockResets, 15);
   update(7499);
   assert.equal(occupied(), 1);
@@ -392,15 +403,15 @@ lockTests(`
   spawnPiece(0);
   piece.shape = ROTATIONS[0][1];
   piece.rotation = 1;
-  piece.y = 6;
-  board[10][piece.x + 2] = 3;
+  piece.y = HIDDEN_ROWS + 6;
+  board[HIDDEN_ROWS + 10][piece.x + 2] = 3;
   update(0); update(400);
   key("ArrowUp");
   assert.equal(isGrounded(), false);
   assert.equal(lockResets, 1);
   assert.equal(lockElapsed, 0);
   update(1100);
-  assert.equal(piece.y, 7);
+  assert.equal(piece.y, HIDDEN_ROWS + 7);
 
   floorPiece();
   update(400);
@@ -450,8 +461,8 @@ lockTests(`
 
   // 固定待ち後のライン消去・得点・次のブロック出現。
   floorPiece();
-  board[19].fill(3);
-  board[19][4] = board[19][5] = 0;
+  board[HIDDEN_ROWS + 19].fill(3);
+  board[HIDDEN_ROWS + 19][4] = board[HIDDEN_ROWS + 19][5] = 0;
   update(499);
   assert.equal(totalLines, 0);
   update(500);
@@ -460,7 +471,7 @@ lockTests(`
   assert.equal(occupied(), 2);
 
   floorPiece();
-  board[0].fill(3, 3, 7); board[1].fill(3, 3, 7);
+  board[HIDDEN_ROWS + 0].fill(3, 3, 7); board[HIDDEN_ROWS + 1].fill(3, 3, 7);
   update(500);
   assert.equal(gameOver, true);
 `);
@@ -483,7 +494,7 @@ rotationTests(`
     [[1,0],[1,1],[1,2],[1,3]],
   ];
   for (let type = 0; type < 7; type++) {
-    restart(); spawnPiece(type); piece.y = 5;
+    restart(); spawnPiece(type); piece.y = HIDDEN_ROWS + 5;
     const start = JSON.stringify(piece);
     const origin = [piece.x, piece.y];
     for (let state = 0; state < 4; state++) {
@@ -501,7 +512,7 @@ rotationTests(`
     assert.equal(JSON.stringify(piece), start);
 
     for (let state = 0; state < 4; state++) {
-      restart(); spawnPiece(type); piece.y = 5;
+      restart(); spawnPiece(type); piece.y = HIDDEN_ROWS + 5;
       for (let i = 0; i < state; i++) rotate();
       const current = cells(piece.shape, piece.x, piece.y);
       const target = cells(ROTATIONS[type][(state + 1) % 4], piece.x, piece.y);
@@ -515,7 +526,7 @@ rotationTests(`
       }
 
       // 全種類・全方向でゴースト位置と固定マス・ドロップ得点が一致。
-      restart(); spawnPiece(type); piece.y = 5;
+      restart(); spawnPiece(type); piece.y = HIDDEN_ROWS + 5;
       for (let i = 0; i < state; i++) rotate();
       const landing = ghostY();
       const fixed = cells(piece.shape, piece.x, landing);
@@ -535,7 +546,7 @@ rotationTests(`
   assert.ok(!collides(piece.shape, piece.x, piece.y));
 
   // HOLDで向きを初期化し、NEXTを余分に消費しない。
-  restart(); spawnPiece(2); piece.y = 5; rotate(); hold();
+  restart(); spawnPiece(2); piece.y = HIDDEN_ROWS + 5; rotate(); hold();
   hardDrop();
   const nextBefore = upcomingType;
   hold();
@@ -553,8 +564,8 @@ kickTests(`
     restart(); spawnPiece(type);
     piece.rotation = state;
     piece.shape = ROTATIONS[type][state];
-    piece.x = x; piece.y = y;
-    assert.ok(!collides(piece.shape, x, y));
+    piece.x = x; piece.y = HIDDEN_ROWS + y;
+    assert.ok(!collides(piece.shape, x, HIDDEN_ROWS + y));
   }
   function checkDrop() {
     const landing = ghostY();
@@ -583,11 +594,11 @@ kickTests(`
   ];
   for (const [type, state, x, y, expectedX, expectedY] of cases) {
     setup(type, state, x, y);
-    assert.ok(collides(ROTATIONS[type][(state + 1) % 4], x, y));
+    assert.ok(collides(ROTATIONS[type][(state + 1) % 4], x, HIDDEN_ROWS + y));
     const grounded = isGrounded();
     lockElapsed = 200;
     key("ArrowUp");
-    assert.deepEqual([piece.x, piece.y, piece.rotation], [expectedX, expectedY, (state + 1) % 4]);
+    assert.deepEqual([piece.x, piece.y, piece.rotation], [expectedX, HIDDEN_ROWS + expectedY, (state + 1) % 4]);
     assert.ok(!collides(piece.shape, piece.x, piece.y));
     assert.equal(lockResets, grounded ? 1 : 0);
     assert.equal(lockElapsed, grounded ? 0 : 200);
@@ -606,15 +617,15 @@ kickTests(`
     for (let state = 0; state < 4; state++) {
       setup(type, state, 3, 5);
       key("ArrowUp");
-      assert.deepEqual([piece.x, piece.y, piece.rotation], [3, 5, (state + 1) % 4]);
+      assert.deepEqual([piece.x, piece.y, piece.rotation], [3, HIDDEN_ROWS + 5, (state + 1) % 4]);
     }
   }
   // 固定ブロックを避け、先に成功する候補を採用。
   setup(2, 0, 3, 5);
-  board[7][4] = 7;
+  board[HIDDEN_ROWS + 7][4] = 7;
   key("ArrowUp");
-  assert.deepEqual([piece.x, piece.y, piece.rotation], [2,5,1]);
-  assert.equal(board[7][4], 7);
+  assert.deepEqual([piece.x, piece.y, piece.rotation], [2,HIDDEN_ROWS + 5,1]);
+  assert.equal(board[HIDDEN_ROWS + 7][4], 7);
   checkDrop();
 
   // 全候補が塞がっているときは位置・形・回転状態・固定待ちを維持。
@@ -633,10 +644,10 @@ kickTests(`
   }
   // O型は壁・床・障害物が近くても位置補正しない。
   setup(1, 0, 0, 18);
-  board[18][2] = 7;
+  board[HIDDEN_ROWS + 18][2] = 7;
   for (let i = 0; i < 4; i++) {
     key("ArrowUp");
-    assert.deepEqual([piece.x, piece.y], [0,18]);
+    assert.deepEqual([piece.x, piece.y], [0,HIDDEN_ROWS + 18]);
     assert.deepEqual(piece.shape, [[1,1],[1,1]]);
   }
   // Kickでもロックディレイの延長上限を超えない。
@@ -651,7 +662,7 @@ kickTests(`
   key("Space"); key("KeyC");
   assert.equal(piece.color, 3);
   assert.equal(piece.rotation, 0);
-  assert.deepEqual([piece.x, piece.y], [3,0]);
+  assert.deepEqual([piece.x, piece.y], [3,SPAWN_Y]);
   key("ArrowUp"); key("KeyR");
   assert.equal(piece.rotation, 0);
   assert.equal(lockResets, 0);
@@ -662,7 +673,7 @@ const timingTests = createGame();
 timingTests(`
   function timedKey(code, timeStamp) { key(code, false, { timeStamp }); }
   function nearFloor() {
-    restart(); spawnPiece(1); piece.y = 17; update(0);
+    restart(); spawnPiece(1); piece.y = HIDDEN_ROWS + 17; update(0);
   }
   function occupied() { return board.flat().filter(Boolean).length; }
   nearFloor();
@@ -692,9 +703,9 @@ timingTests(`
   assert.equal(lockResets, 0);
 
   // 床際TのKick成功でも、入力以前の時間をリセット後に加算しない。
-  restart(); spawnPiece(2); piece.y = 18; update(0);
+  restart(); spawnPiece(2); piece.y = HIDDEN_ROWS + 18; update(0);
   timedKey("ArrowUp", 490); update(500);
-  assert.deepEqual([piece.x, piece.y, piece.rotation], [2,17,1]);
+  assert.deepEqual([piece.x, piece.y, piece.rotation], [2,HIDDEN_ROWS + 17,1]);
   assert.equal(lockElapsed, 10);
   assert.equal(lockResets, 1);
   update(989); assert.equal(occupied(), 0);
@@ -733,9 +744,9 @@ timingTests(`
   // 高レベルでは入力前の自動落下を先に処理する。
   restart(); spawnPiece(1); level = 11; update(0);
   timedKey("ArrowLeft", 490);
-  assert.equal(piece.y, 4);
+  assert.equal(piece.y, SPAWN_Y + 4);
   assert.equal(dropElapsed, 90);
-  update(500); assert.equal(piece.y, 5);
+  update(500); assert.equal(piece.y, SPAWN_Y + 5);
   assert.equal(dropElapsed, 0);
 
   nearFloor(); level = 11;
@@ -776,7 +787,7 @@ heldInputTests(`
   assert.equal(piece.x,7);
   update(270); update(320); assert.equal(piece.x,8);
   release("ArrowRight",320);
-  fresh(); board[0][6]=7; press("ArrowRight",0); update(170); update(220);
+  fresh(); board[HIDDEN_ROWS + 0][6]=7; press("ArrowRight",0); update(170); update(220);
   assert.equal(piece.x,4);
 
   for (const first of ["ArrowLeft","ArrowRight"]) {
@@ -790,24 +801,24 @@ heldInputTests(`
     update(351); assert.equal(piece.x,4);
     release(first,352); update(500); assert.equal(piece.x,4); cleared();
   }
-  fresh(); press("ArrowDown",0); assert.equal(piece.y,1); assert.equal(score,1);
-  update(39); assert.equal(piece.y,1);
-  update(40); assert.equal(piece.y,2);
-  update(80); assert.equal(piece.y,3); assert.equal(score,3);
+  fresh(); press("ArrowDown",0); assert.equal(piece.y, SPAWN_Y + 1); assert.equal(score,1);
+  update(39); assert.equal(piece.y, SPAWN_Y + 1);
+  update(40); assert.equal(piece.y, SPAWN_Y + 2);
+  update(80); assert.equal(piece.y, SPAWN_Y + 3); assert.equal(score,3);
   release("ArrowDown",81);
-  update(780); assert.equal(piece.y,3);
-  update(781); assert.equal(piece.y,4); assert.equal(score,3);
+  update(780); assert.equal(piece.y, SPAWN_Y + 3);
+  update(781); assert.equal(piece.y, SPAWN_Y + 4); assert.equal(score,3);
   fresh(); level=11; press("ArrowDown",0);
   for(let t=10;t<=200;t+=10) { press("ArrowDown",t,true); update(t); }
-  assert.equal(piece.y,6); assert.equal(score,6);
-  fresh(); piece.y=17; press("ArrowDown",490); update(500);
+  assert.equal(piece.y, SPAWN_Y + 6); assert.equal(score,6);
+  fresh(); piece.y = HIDDEN_ROWS + 17; press("ArrowDown",490); update(500);
   assert.equal(lockElapsed,10);
   for(let t=540;t<=980;t+=40) update(t);
   assert.equal(board.flat().filter(Boolean).length,0);
   update(990); assert.equal(board.flat().filter(Boolean).length,4);
   assert.equal(score,1);
 
-  fresh(); piece.y=18; press("ArrowLeft",0); update(170);
+  fresh(); piece.y = HIDDEN_ROWS + 18; press("ArrowLeft",0); update(170);
   assert.equal(lockResets,2); assert.equal(lockElapsed,0);
   update(220); update(270); update(320);
   assert.equal(piece.x,0); assert.equal(lockResets,4);
@@ -823,7 +834,7 @@ heldInputTests(`
   const x=piece.x; update(1200); assert.equal(piece.x,x);
   press("ArrowLeft",1210,true); cleared();
   fresh(); press("ArrowLeft",0); key("KeyR"); cleared();
-  fresh(); press("ArrowLeft",0); board[0].fill(7,3,7); board[1].fill(7,3,7);
+  fresh(); press("ArrowLeft",0); board[HIDDEN_ROWS + 0].fill(7,3,7); board[HIDDEN_ROWS + 1].fill(7,3,7);
   spawnPiece(1); assert.ok(gameOver); cleared();
   fresh(); press("ArrowLeft",0); press("ArrowDown",1); emit("blur"); cleared();
   update(1000); press("ArrowLeft",1001,true); cleared();
@@ -849,15 +860,15 @@ slowFrameTests(`
   for (let t=16;t<=240;t+=16) {
     update(t);
     assert.equal(piece.x, 5 + (t<170 ? 0 : 1+Math.floor((t-170)/50)));
-    assert.equal(piece.y, 1+Math.floor(t/40));
-    assert.equal(score,piece.y);
+    assert.equal(piece.y, SPAWN_Y+1+Math.floor(t/40));
+    assert.equal(score,piece.y-SPAWN_Y);
   }
   // 250msまでは通常の取り戻し、超過時は各入力1回に限定。
   for (const gap of [249,250,251]) {
     fresh(); press("ArrowRight",0); press("ArrowDown",0); update(gap);
     assert.equal(piece.x,gap<=250 ? 7 : 6);
-    assert.equal(piece.y,gap<=250 ? 7 : 2);
-    assert.equal(score,piece.y);
+    assert.equal(piece.y,SPAWN_Y+(gap<=250 ? 7 : 2));
+    assert.equal(score,piece.y-SPAWN_Y);
     const x=piece.x, y=piece.y;
     update(gap+50);
     assert.ok(piece.x>x);
@@ -866,11 +877,11 @@ slowFrameTests(`
   fresh(); level=11; press("ArrowDown",0);
   for(let t=300;t<=3000;t+=300) {
     update(t);
-    assert.equal(piece.y,1+t/300);
-    assert.equal(score,piece.y); // 通常落下との二重実行なし。
+    assert.equal(piece.y,SPAWN_Y+1+t/300);
+    assert.equal(score,piece.y-SPAWN_Y); // 通常落下との二重実行なし。
   }
-  release("ArrowDown",3000); update(3099); assert.equal(piece.y,11);
-  update(3100); assert.equal(piece.y,12); assert.equal(score,11);
+  release("ArrowDown",3000); update(3099); assert.equal(piece.y, SPAWN_Y + 11);
+  update(3100); assert.equal(piece.y, SPAWN_Y + 12); assert.equal(score,11);
   for (const code of ["ArrowLeft","ArrowRight"]) {
     fresh(); const direction=code==="ArrowLeft"?-1:1;
     press(code,0);
@@ -881,35 +892,35 @@ slowFrameTests(`
     }
     release(code,3000); const x=piece.x; update(3300); assert.equal(piece.x,x);
   }
-  fresh(); press("ArrowRight",0); board[0][7]=7;
+  fresh(); press("ArrowRight",0); board[HIDDEN_ROWS + 0][7]=7;
   update(300); assert.equal(piece.x,5); // 固定ブロックを越えない。
   fresh(); press("ArrowRight",0); press("ArrowDown",0); update(1000);
-  assert.deepEqual([piece.x,piece.y,score],[6,2,2]);
-  update(1039); assert.equal(piece.y,2);
-  update(1040); assert.equal(piece.y,3);
+  assert.deepEqual([piece.x,piece.y,score],[6,SPAWN_Y+2,2]);
+  update(1039); assert.equal(piece.y, SPAWN_Y + 2);
+  update(1040); assert.equal(piece.y, SPAWN_Y + 3);
   update(1049); assert.equal(piece.x,6);
   update(1050); assert.equal(piece.x,7);
 
   // 遅い更新で着地した瞬間には、着地前の時間を加えない。
-  fresh(); piece.y=16; press("ArrowDown",0); update(300);
-  assert.equal(piece.y,18); assert.equal(lockElapsed,0);
+  fresh(); piece.y = HIDDEN_ROWS + 16; press("ArrowDown",0); update(300);
+  assert.equal(piece.y, HIDDEN_ROWS + 18); assert.equal(lockElapsed,0);
   update(600); assert.equal(lockElapsed,300); assert.equal(score,2);
   update(799); assert.equal(lockElapsed,499); assert.equal(occupied(),0);
   release("ArrowDown",799);
   update(800); assert.equal(occupied(),4); assert.equal(score,2);
-  fresh(); piece.y=18; press("ArrowLeft",0);
+  fresh(); piece.y = HIDDEN_ROWS + 18; press("ArrowLeft",0);
   for(const t of [300,600,900]) { update(t); assert.equal(lockElapsed,0); }
   assert.equal(piece.x,0); assert.equal(lockResets,4);
   update(1200); assert.equal(lockElapsed,300); assert.equal(lockResets,4);
   update(1399); assert.equal(occupied(),0);
   update(1400); assert.equal(occupied(),4);
-  fresh(); piece.y=18; lockResets=15; press("ArrowLeft",0); update(300);
+  fresh(); piece.y = HIDDEN_ROWS + 18; lockResets=15; press("ArrowLeft",0); update(300);
   assert.equal(lockElapsed,300); assert.equal(lockResets,15);
   update(500); assert.equal(occupied(),4);
   // 床Kickの直前まで時間を進め、成功時にだけ固定待ちをリセット。
-  fresh(); spawnPiece(2); piece.y=18; press("ArrowDown",0); update(300);
+  fresh(); spawnPiece(2); piece.y = HIDDEN_ROWS + 18; press("ArrowDown",0); update(300);
   key("ArrowUp",false,{timeStamp:310});
-  assert.deepEqual([piece.x,piece.y,piece.rotation],[2,17,1]);
+  assert.deepEqual([piece.x,piece.y,piece.rotation],[2,HIDDEN_ROWS + 17,1]);
   assert.equal(lockElapsed,0); assert.equal(lockResets,1);
   update(610); assert.equal(lockElapsed,300);
   update(809); assert.equal(occupied(),0);
@@ -919,7 +930,7 @@ slowFrameTests(`
     fresh(); press("ArrowRight",0); press("ArrowDown",0); update(300);
     if(action==="pause") { key("KeyP"); update(900); key("KeyP"); }
     if(action==="restart") key("KeyR");
-    if(action==="over") { board[0].fill(7); board[1].fill(7); spawnPiece(1); assert.ok(gameOver); }
+    if(action==="over") { board[HIDDEN_ROWS + 0].fill(7); board[HIDDEN_ROWS + 1].fill(7); spawnPiece(1); assert.ok(gameOver); }
     if(action==="blur") emit("blur");
     if(action==="hidden") { document.hidden=true; emit("visibilitychange"); document.hidden=false; emit("visibilitychange"); }
     assert.ok(Object.values(heldKeys).every(value=>!value));
@@ -986,15 +997,15 @@ const leftRotationTests = createGame();
 leftRotationTests(`
   function setup(type, state=0, x=3, y=5) {
     restart(); spawnPiece(type);
-    piece.rotation=state; piece.shape=ROTATIONS[type][state]; piece.x=x; piece.y=y;
-    assert.ok(!collides(piece.shape,x,y)); update(0);
+    piece.rotation=state; piece.shape=ROTATIONS[type][state]; piece.x=x; piece.y=HIDDEN_ROWS+y;
+    assert.ok(!collides(piece.shape,x,HIDDEN_ROWS+y)); update(0);
   }
   for(let type=0;type<7;type++) {
     setup(type); const before=JSON.stringify(piece);
     for(const state of [3,2,1,0]) {
       key("KeyZ"); assert.equal(piece.rotation,state);
       assert.deepEqual(piece.shape,ROTATIONS[type][state]);
-      assert.deepEqual([piece.x,piece.y],[3,5]);
+      assert.deepEqual([piece.x,piece.y],[3,HIDDEN_ROWS + 5]);
     }
     assert.equal(JSON.stringify(piece),before);
     key("ArrowUp"); key("KeyZ"); assert.equal(JSON.stringify(piece),before);
@@ -1008,7 +1019,7 @@ leftRotationTests(`
   ];
   for(const [type,state,x,y,ex,ey] of cases) {
     setup(type,state,x,y); key("KeyZ");
-    assert.deepEqual([piece.x,piece.y,piece.rotation],[ex,ey,(state+3)%4]);
+    assert.deepEqual([piece.x,piece.y,piece.rotation],[ex,HIDDEN_ROWS+ey,(state+3)%4]);
     assert.ok(!collides(piece.shape,piece.x,piece.y));
     const snapshot=JSON.stringify([piece,board]);
     const landing=ghostY(); assert.equal(JSON.stringify([piece,board]),snapshot);
@@ -1023,9 +1034,9 @@ leftRotationTests(`
   for(const type of [2,3,4,5,6]) {
     setup(type,1,-1,5); key("KeyZ"); assert.equal(piece.x,0); assert.equal(piece.rotation,0);
   }
-  setup(2); board[7][4]=7; key("KeyZ");
-  assert.deepEqual([piece.x,piece.y,piece.rotation],[4,5,3]);
-  assert.equal(board[7][4],7);
+  setup(2); board[HIDDEN_ROWS + 7][4]=7; key("KeyZ");
+  assert.deepEqual([piece.x,piece.y,piece.rotation],[4,HIDDEN_ROWS + 5,3]);
+  assert.equal(board[HIDDEN_ROWS + 7][4],7);
   for(const type of [0,2,3,4,5,6]) {
     for(let state=0;state<4;state++) {
       setup(type,state); board.forEach(row=>row.fill(7));
@@ -1036,7 +1047,7 @@ leftRotationTests(`
     }
   }
   setup(1,0,0,18);
-  for(let i=0;i<4;i++) { key("KeyZ"); assert.deepEqual([piece.x,piece.y],[0,18]); assert.deepEqual(piece.shape,[[1,1],[1,1]]); }
+  for(let i=0;i<4;i++) { key("KeyZ"); assert.deepEqual([piece.x,piece.y],[0,HIDDEN_ROWS + 18]); assert.deepEqual(piece.shape,[[1,1],[1,1]]); }
   setup(2,0,3,18); key("KeyZ",false,{timeStamp:490}); update(500);
   assert.equal(lockElapsed,10); assert.equal(lockResets,1);
   update(989); assert.equal(board.flat().filter(Boolean).length,0);
@@ -1045,14 +1056,163 @@ leftRotationTests(`
   assert.equal(lockResets,15); assert.equal(lockElapsed,400);
   setup(2); key("KeyZ"); key("KeyC"); key("Space"); key("KeyC");
   assert.equal(piece.color,3); assert.equal(piece.rotation,0);
-  assert.deepEqual([piece.x,piece.y],[3,0]); assert.equal(lockResets,0);
+  assert.deepEqual([piece.x,piece.y],[3,SPAWN_Y]); assert.equal(lockResets,0);
   setup(2); press("KeyZ",0); press("KeyZ",10,true); assert.equal(piece.rotation,3);
   for(const modifier of ["ctrlKey","altKey","metaKey"]) {
     key("KeyZ",false,{[modifier]:true}); assert.equal(piece.rotation,3);
   }
   key("KeyP"); key("KeyZ"); assert.equal(piece.rotation,3);
   key("KeyR"); assert.equal(piece.rotation,0);
-  board[0].fill(7); board[1].fill(7); spawnPiece(2);
+  board[HIDDEN_ROWS + 0].fill(7); board[HIDDEN_ROWS + 1].fill(7); spawnPiece(2);
   key("KeyZ"); assert.equal(piece.rotation,0);
 `);
 console.log("PASS: counterclockwise rotation, inverse turns, SRS kicks, blocked turns, lock limits/timing, ghost/drop, HOLD and Z input guards.");
+
+const upperBoardTests = createGame();
+upperBoardTests(`
+  function fresh(type=1) { restart(); spawnPiece(type); update(0); }
+  function occupied() { return board.flat().filter(Boolean).length; }
+  function pieceCells() {
+    const cells=[];
+    piece.shape.forEach((row,dy)=>row.forEach((cell,dx)=>{
+      if(cell) cells.push([piece.x+dx,piece.y+dy]);
+    }));
+    return cells;
+  }
+  assert.equal(VISIBLE_ROWS,20); assert.equal(HIDDEN_ROWS,20);
+  assert.equal(TOTAL_ROWS,VISIBLE_ROWS+HIDDEN_ROWS);
+  assert.equal(canvas.width,COLS*CELL); assert.equal(canvas.height,VISIBLE_ROWS*CELL);
+  assert.equal(board.length,TOTAL_ROWS);
+  assert.ok(board.every(row=>row.length===COLS));
+  for(const y of [0,HIDDEN_ROWS-1,HIDDEN_ROWS,TOTAL_ROWS-1]) {
+    assert.equal(collides([[1]],0,y),false);
+    board[y][0]=7; assert.equal(collides([[1]],0,y),true); board[y][0]=0;
+  }
+  assert.ok(collides([[1]],0,-1)); assert.ok(collides([[1]],0,TOTAL_ROWS));
+  assert.ok(collides([[1]],-1,HIDDEN_ROWS-1)); assert.ok(collides([[1]],COLS,HIDDEN_ROWS-1));
+  for(let type=0;type<7;type++) {
+    fresh(type);
+    assert.equal(piece.y,HIDDEN_ROWS-1); assert.equal(piece.rotation,0);
+    assert.equal(piece.x,type===1 ? 4 : 3);
+    assert.deepEqual(piece.shape,ROTATIONS[type][0]);
+    assert.equal(Math.min(...pieceCells().map(cell=>cell[1])),type===0 ? HIDDEN_ROWS : HIDDEN_ROWS-1);
+    assert.equal(Math.max(...pieceCells().map(cell=>cell[1])),HIDDEN_ROWS);
+    const original=JSON.stringify(piece);
+    key("ArrowLeft"); key("ArrowRight"); assert.equal(JSON.stringify(piece),original);
+    key("ArrowUp"); key("KeyZ"); assert.equal(JSON.stringify(piece),original);
+    key("KeyZ"); key("ArrowUp"); assert.equal(JSON.stringify(piece),original);
+    key("ArrowDown"); assert.equal(piece.y,HIDDEN_ROWS); assert.equal(score,1);
+    // 全て非表示の状態でも回転・移動・ドロップ可能。
+    piece.y=HIDDEN_ROWS-4;
+    key("ArrowLeft"); key("KeyZ"); assert.ok(!collides(piece.shape,piece.x,piece.y));
+    const landing=ghostY(), distance=landing-piece.y;
+    const target=pieceCells().map(([x,y])=>[x,y+distance]);
+    const points=score;
+    key("Space");
+    assert.equal(score,points+distance*2); assert.equal(occupied(),4);
+    target.forEach(([x,y])=>assert.equal(board[y][x],type+1));
+    assert.equal(gameOver,false);
+  }
+  // 非表示最下段よりさらに上でも、左右の壁Kickを許可。
+  for(const code of ["ArrowUp","KeyZ"]) {
+    for(const type of [0,2,3,4,5,6]) {
+      fresh(type); piece.rotation=1; piece.shape=ROTATIONS[type][1];
+      piece.x=type===0 ? -2 : -1; piece.y=HIDDEN_ROWS-4;
+      key(code);
+      assert.equal(piece.rotation,code==="ArrowUp" ? 2 : 0);
+      assert.ok(!collides(piece.shape,piece.x,piece.y));
+      assert.ok(pieceCells().every(([x,y])=>x>=0 && y<HIDDEN_ROWS));
+    }
+  }
+  // 全種類のSpawn実セルを塞ぐとBlock Out。空白セルは衝突扱いしない。
+  for(let type=0;type<7;type++) {
+    fresh(type); const [x,y]=pieceCells()[0]; board[y][x]=7;
+    spawnPiece(type); assert.ok(gameOver); assert.ok(pauseButton.disabled);
+  }
+  fresh(0); board[SPAWN_Y][3]=7; spawnPiece(0); assert.equal(gameOver,false);
+  fresh(); board[0][0]=7; board[HIDDEN_ROWS-1][0]=7;
+  spawnPiece(2); assert.equal(gameOver,false);
+  // HOLD交換も同じSpawn位置と衝突判定を使う。
+  fresh(2); heldType=1; piece.y=HIDDEN_ROWS+5;
+  board[SPAWN_Y][4]=7; key("KeyC"); assert.ok(gameOver);
+  fresh(2); heldType=0; piece.y=HIDDEN_ROWS+5; key("KeyZ");
+  lockElapsed=300; lockResets=7; key("KeyC");
+  assert.equal(piece.y,SPAWN_Y); assert.equal(piece.rotation,0);
+  assert.equal(lockElapsed,0); assert.equal(lockResets,0); assert.ok(holdUsed);
+  const held=JSON.stringify(piece); key("KeyC"); assert.equal(JSON.stringify(piece),held);
+  key("Space"); assert.equal(holdUsed,false);
+  // 隠れていること自体では固定待ちを開始しない。
+  fresh(); piece.y=HIDDEN_ROWS-4; update(499);
+  assert.equal(lockElapsed,0); assert.equal(gameOver,false);
+  // 全セルが非表示で接地した場合も500msまでは固定しない。
+  fresh(); piece.x=0; piece.y=HIDDEN_ROWS-3;
+  board[HIDDEN_ROWS-1][0]=board[HIDDEN_ROWS-1][1]=7;
+  const next=upcomingType;
+  press("ArrowDown",0); update(499); assert.equal(gameOver,false); assert.equal(score,0);
+  update(500); assert.ok(gameOver); assert.equal(occupied(),6);
+  assert.equal(upcomingType,next); assert.ok(pauseButton.disabled);
+  assert.ok(Object.values(heldKeys).every(value=>!value));
+  const over=JSON.stringify([board,piece,score]);
+  key("ArrowUp"); key("KeyZ"); key("Space"); update(2000);
+  assert.equal(JSON.stringify([board,piece,score]),over);
+  // Hard DropによるLock Outも即時に終了。
+  fresh(); piece.x=0; piece.y=HIDDEN_ROWS-4;
+  board[HIDDEN_ROWS-1][0]=board[HIDDEN_ROWS-1][1]=7;
+  assert.equal(ghostY(),HIDDEN_ROWS-3); key("Space");
+  assert.ok(gameOver); assert.equal(score,2);
+  // 一部だけ非表示なら終了しない（中央のSpawnも空けておく）。
+  fresh(); piece.x=0; piece.y=HIDDEN_ROWS-1;
+  board[HIDDEN_ROWS+1][0]=board[HIDDEN_ROWS+1][1]=7;
+  lockPiece(); assert.equal(gameOver,false); assert.equal(occupied(),6);
+  assert.equal(board[HIDDEN_ROWS-1][0],2);
+  // 消去前に全セルが非表示なら、完成行があってもLock Outを優先。
+  fresh(); piece.x=0; piece.y=HIDDEN_ROWS-3;
+  board[HIDDEN_ROWS-3].fill(7,2); board[HIDDEN_ROWS-2].fill(7,2);
+  board[HIDDEN_ROWS-1][0]=board[HIDDEN_ROWS-1][1]=7;
+  lockPiece(); assert.ok(gameOver); assert.equal(totalLines,0); assert.equal(score,0);
+  assert.ok(board[HIDDEN_ROWS-2].every(Boolean));
+  // 非表示と表示の境界をまたぐ2行消去。上のマーカーが表示内へ下がる。
+  fresh(); piece.x=0; piece.y=HIDDEN_ROWS-1;
+  board[HIDDEN_ROWS-1].fill(7,2); board[HIDDEN_ROWS].fill(7,2);
+  board[HIDDEN_ROWS-2][8]=6;
+  lockPiece(); assert.equal(gameOver,false); assert.equal(totalLines,2); assert.equal(score,300);
+  assert.equal(board[HIDDEN_ROWS][8],6); assert.equal(board.length,TOTAL_ROWS);
+  assert.ok(board.slice(0,2).every(row=>row.every(cell=>cell===0)));
+  // 通常の1～4行消去でも、非表示ブロックを含む上部が同じ行数だけ下がる。
+  for(let count=1;count<=4;count++) {
+    fresh(0); piece.rotation=1; piece.shape=ROTATIONS[0][1]; piece.x=2; piece.y=TOTAL_ROWS-4;
+    board[HIDDEN_ROWS-1][8]=6;
+    for(let y=TOTAL_ROWS-count;y<TOTAL_ROWS;y++) { board[y].fill(7); board[y][4]=0; }
+    lockPiece();
+    assert.equal(totalLines,count); assert.equal(score,[0,100,300,500,800][count]);
+    assert.equal(board[HIDDEN_ROWS-1+count][8],6); assert.equal(board.length,TOTAL_ROWS);
+    assert.equal(new Set(board).size,TOTAL_ROWS);
+    assert.ok(board.slice(0,count).every(row=>row.every(cell=>cell===0)));
+  }
+  // 内部・表示座標の境界を実際の描画命令で確認。
+  captureDraw=true;
+  fresh(); drawCalls.length=0;
+  for(const y of [0,HIDDEN_ROWS-1,HIDDEN_ROWS,TOTAL_ROWS-1,TOTAL_ROWS]) drawCell(0,y,1);
+  const fills=drawCalls.filter(call=>call.name==="fillRect");
+  assert.equal(fills.length,2);
+  assert.equal(fills[0].args[1],1); assert.equal(fills[1].args[1],(VISIBLE_ROWS-1)*CELL+1);
+  fresh(); gameOver=true;
+  for(const y of [0,HIDDEN_ROWS-1,HIDDEN_ROWS,TOTAL_ROWS-1]) board[y][0]=1;
+  drawCalls.length=0; draw();
+  assert.equal(drawCalls.filter(call=>call.name==="fillRect").length,2);
+  assert.equal(drawCalls.filter(call=>call.name==="clearRect")[0].args[3],VISIBLE_ROWS*CELL);
+  assert.equal(drawCalls.filter(call=>call.name==="lineTo").length,COLS+1+VISIBLE_ROWS+1);
+  fresh(); drawCalls.length=0; draw();
+  const active=drawCalls.filter(call=>call.name==="fillRect" && call.alpha===1);
+  assert.equal(active.length,2); assert.ok(active.every(call=>call.args[1]===1));
+  piece.y=HIDDEN_ROWS-2; drawCalls.length=0; draw();
+  assert.equal(drawCalls.filter(call=>call.name==="fillRect" && call.alpha===1).length,0);
+  // Ghostも非表示領域に着地する場合は描画しない。
+  board[HIDDEN_ROWS][4]=board[HIDDEN_ROWS][5]=7; drawCalls.length=0; draw();
+  assert.equal(drawCalls.filter(call=>call.name==="fillRect" && call.alpha===0.25).length,0);
+  restart();
+  assert.equal(board.length,TOTAL_ROWS); assert.equal(occupied(),0);
+  assert.equal(piece.y,SPAWN_Y); assert.equal(gameOver,false); assert.equal(pauseButton.disabled,false);
+  assert.equal(lockElapsed,0); assert.equal(lockResets,0); assert.equal(lastTime,null);
+`);
+console.log("PASS: hidden rows, spawn for all pieces, upper rotations/kicks, draw boundaries, ghost/drop, line shifts, block/lock out and restart.");
