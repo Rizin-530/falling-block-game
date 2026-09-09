@@ -90,6 +90,7 @@ let bag = [];
 let lastRotationKick = null;
 // 確定済みの結果は次のSpawnでも保持し、進行中ピースの回転資格とは分離する。
 let lastLockResult = null;
+let backToBackActive = false;
 
 // 7種類を1回ずつ使う順番をシャッフルする。
 function nextType() {
@@ -292,6 +293,13 @@ function calculateClearScore(spin, lines, level) {
   return (scores[lines] ?? 0) * level;
 }
 
+// ライン消去を伴うTetris / Full / Miniが対象。0ラインは含めない。
+function isDifficultClear(spin, lines) {
+  return (spin === "NONE" && lines === 4)
+    || (spin === "T_SPIN" && lines >= 1 && lines <= 3)
+    || (spin === "T_SPIN_MINI" && lines >= 1 && lines <= 2);
+}
+
 function lockPiece() {
   lastLockResult = { spin: detectTSpin(), lines: 0 };
   // 消去前の固定位置で判定。一部が見えていればLock Outにしない。
@@ -309,7 +317,12 @@ function lockPiece() {
   while (remaining.length < TOTAL_ROWS) remaining.unshift(Array(COLS).fill(0));
   board = remaining;
   // 今回の消去によるLevel上昇より前の倍率を使う。
-  addScore(calculateClearScore(lastLockResult.spin, cleared, level));
+  let clearScore = calculateClearScore(lastLockResult.spin, cleared, level);
+  const difficult = isDifficultClear(lastLockResult.spin, cleared);
+  if (backToBackActive && difficult) clearScore = clearScore * 3 / 2;
+  addScore(clearScore);
+  // 最初の対象消去は開始だけ。0ラインは既存の連続状態を維持する。
+  if (cleared > 0) backToBackActive = difficult;
   totalLines += cleared;
   level = Math.floor(totalLines / 10) + 1;
   levelElement.textContent = level;
@@ -373,6 +386,7 @@ function draw() {
 }
 
 function restart() {
+  backToBackActive = false;
   lastLockResult = null;
   clearHeldKeys();
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));

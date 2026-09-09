@@ -1573,3 +1573,137 @@ createGame(failedSpinStorage)(awardSpinZero + `
   restart(); assert.equal(highScore,400); assert.equal(score,0);
 `);
 console.log("PASS: T-spin scores through shared high-score storage, reload and write failure.");
+
+// 盤面だけを各消去の配置へ組み直す。score/Level/B2Bは固定間で引き継ぐ。
+const b2bFixtures = `
+  function prepareB2BClear(spin, lines) {
+    board=Array.from({length:TOTAL_ROWS},()=>Array(COLS).fill(0));
+    spawnPiece(spin==="NONE" ? 0 : 2);
+    if(spin==="NONE") {
+      piece.rotation=1; piece.shape=ROTATIONS[0][1]; piece.x=2; piece.y=36;
+      for(let y=40-lines;y<40;y++) { board[y].fill(7); board[y][4]=0; }
+    } else if(spin==="T_SPIN") {
+      piece.x=4; piece.y=33;
+      const target=ROTATIONS[2][1];
+      for(let dy=0;dy<3;dy++) for(let x=0;x<COLS;x++) {
+        if(!target[dy][x-3]) board[35+dy][x]=7;
+      }
+      for(let row=0;row<3-lines;row++) board[35+row][0]=0;
+      board[33][4]=7; board[38][4]=7;
+      rotate(); assert.equal(lastRotationKick,4);
+    } else {
+      piece.x=3; piece.y=35; rotate();
+      board[35][3]=7; board[37][5]=7; board[37][3]=7;
+      for(let dy=3-lines;dy<3;dy++) for(let x=0;x<COLS;x++) {
+        if(!piece.shape[dy][x-3]) board[35+dy][x]=7;
+      }
+    }
+    assert.equal(collides(piece.shape,piece.x,piece.y),false);
+    assert.equal(detectTSpin(),spin);
+  }
+  function finishB2BClear(spin,lines) {
+    prepareB2BClear(spin,lines);
+    const previous=score;
+    lockPiece();
+    assert.deepEqual(lastLockResult,{spin,lines});
+    assert.equal(Number(scoreElement.textContent),score);
+    return score-previous;
+  }
+`;
+const b2bStorage = {};
+const b2bTests = createGame(b2bStorage);
+b2bTests(b2bFixtures);
+b2bTests(`
+  assert.equal(backToBackActive,false);
+  assert.equal(finishB2BClear("NONE",4),800); assert.equal(backToBackActive,true);
+  assert.equal(finishB2BClear("NONE",4),1200); assert.equal(score,2000);
+  restart(); finishB2BClear("NONE",4);
+  for(let i=0;i<2;i++) {
+    assert.equal(finishB2BClear("NONE",0),0); assert.equal(backToBackActive,true);
+  }
+  assert.equal(finishB2BClear("NONE",4),1200); assert.equal(score,2000);
+  for(let lines=1;lines<=3;lines++) {
+    restart(); finishB2BClear("NONE",4);
+    assert.equal(finishB2BClear("NONE",lines),[0,100,300,500][lines]);
+    assert.equal(backToBackActive,false);
+    assert.equal(finishB2BClear("NONE",4),800);
+  }
+  for(const [first,firstLines,second,secondLines,firstScore,secondScore] of [
+    ["NONE",4,"T_SPIN",2,800,1800],
+    ["T_SPIN",2,"NONE",4,1200,1200],
+    ["T_SPIN",1,"T_SPIN",2,800,1800],
+    ["T_SPIN_MINI",1,"T_SPIN",3,200,2400],
+    ["T_SPIN",1,"T_SPIN_MINI",1,800,300],
+    ["NONE",4,"T_SPIN_MINI",2,800,600],
+    ["T_SPIN_MINI",2,"NONE",4,400,1200],
+  ]) {
+    restart(); assert.equal(finishB2BClear(first,firstLines),firstScore);
+    assert.equal(backToBackActive,true);
+    assert.equal(finishB2BClear(second,secondLines),secondScore);
+    assert.equal(backToBackActive,true);
+  }
+  for(const spin of ["T_SPIN","T_SPIN_MINI"]) for(const active of [false,true]) {
+    restart(); if(active) finishB2BClear("NONE",4);
+    const beforeLines=totalLines, beforeLevel=level;
+    assert.equal(finishB2BClear(spin,0),spin==="T_SPIN" ? 400 : 100);
+    assert.equal(backToBackActive,active);
+    assert.equal(totalLines,beforeLines); assert.equal(level,beforeLevel);
+    assert.equal(finishB2BClear("NONE",4),active ? 1200 : 800);
+  }
+  restart(); level=3; totalLines=20;
+  assert.equal(finishB2BClear("NONE",4),2400);
+  assert.equal(finishB2BClear("NONE",4),3600);
+  restart(); level=2; totalLines=10; finishB2BClear("NONE",4);
+  assert.equal(finishB2BClear("T_SPIN",2),3600); // 二重得点・二重Level倍率なし
+  restart(); level=3; totalLines=20; finishB2BClear("NONE",4);
+  assert.equal(finishB2BClear("T_SPIN",2),5400);
+  for(const active of [false,true]) {
+    restart(); if(active) finishB2BClear("NONE",4);
+    totalLines=9; level=1;
+    assert.equal(finishB2BClear("T_SPIN",1),active ? 1200 : 800);
+    assert.equal(totalLines,10); assert.equal(level,2);
+  }
+  // B2B中の実Hard Drop 10マス→次のT-Spin。得点は途中で書き換えない。
+  restart(); level=2; totalLines=10; finishB2BClear("NONE",4);
+  prepareB2BClear("NONE",0); piece.y-=10;
+  const beforeDrop=score; hardDrop();
+  assert.equal(score-beforeDrop,20); assert.equal(backToBackActive,true);
+  finishB2BClear("T_SPIN",2); assert.equal(score-beforeDrop,3620);
+  // 同じピースでSoft DropしてからKick。Drop点へ倍率を掛けない。
+  prepareB2BClear("T_SPIN",2);
+  piece.x=5; piece.y=23; piece.rotation=0; piece.shape=ROTATIONS[2][0]; lastRotationKick=null;
+  const beforeSoft=score;
+  for(let i=0;i<10;i++) stepDown(true);
+  assert.equal(score-beforeSoft,10); assert.equal(piece.y,33);
+  assert.equal(move(-1,0),true); rotate(); hardDrop();
+  assert.equal(score-beforeSoft,3610);
+  // HOLD/Spawn/Pauseではチェーンを失わない。
+  hold(); assert.equal(backToBackActive,true);
+  togglePause(0); togglePause(1000); assert.equal(backToBackActive,true);
+  const record=highScore, finalScore=score;
+  endGame(); assert.equal(score,finalScore); assert.equal(highScore,record);
+  restart(); assert.equal(backToBackActive,false); assert.equal(highScore,record);
+  assert.equal(finishB2BClear("NONE",4),800);
+  restart(); assert.equal(backToBackActive,false);
+  assert.equal(finishB2BClear("NONE",4),800);
+  // 対象外の分類にB2Bを付けない。
+  assert.equal(isDifficultClear("T_SPIN",4),false);
+  assert.equal(isDifficultClear("T_SPIN_MINI",3),false);
+`);
+const b2bReload = createGame(b2bStorage);
+b2bReload("assert.ok(highScore>0); assert.equal(backToBackActive,false)");
+const sharedB2B = {};
+const b2bA=createGame(sharedB2B), b2bB=createGame(sharedB2B);
+for(const game of [b2bA,b2bB]) game(b2bFixtures);
+b2bA('finishB2BClear("NONE",4); finishB2BClear("NONE",4); assert.equal(highScore,2000)');
+b2bB('finishB2BClear("NONE",4); assert.equal(highScore,2000)');
+assert.equal(sharedB2B["falling-block-high-score"],"2000");
+const failedB2B = {};
+Object.defineProperty(failedB2B,"falling-block-high-score", {
+  get() { return "0"; }, set() { throw new Error("Storage unavailable"); },
+});
+createGame(failedB2B)(b2bFixtures + `
+  finishB2BClear("NONE",4); finishB2BClear("NONE",4);
+  assert.equal(score,2000); assert.equal(highScore,2000); assert.equal(gameOver,false);
+`);
+console.log("PASS: B2B start/continue/break, empty placements, mixed full/mini clears, levels, unscaled drops, lifecycle and high-score storage.");
