@@ -6,6 +6,9 @@ const HIDDEN_ROWS = 20;
 const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
 const NEXT_COUNT = 5;
 const LINE_CLEAR_SCORES = [0, 100, 300, 500, 800];
+// 代表的なGuideline系得点。Mini Doubleも含む（https://tetris.wiki/Scoring）。
+const T_SPIN_SCORES = [400, 800, 1200, 1600];
+const T_SPIN_MINI_SCORES = [100, 200, 400];
 // piece.yとboardは内部座標。Spawn枠は表示最上段の1行上。
 const SPAWN_Y = HIDDEN_ROWS - 1;
 const CELL = 30;
@@ -281,6 +284,14 @@ function detectTSpin() {
   return frontFilled || lastRotationKick === 4 ? "T_SPIN" : "T_SPIN_MINI";
 }
 
+function calculateClearScore(spin, lines, level) {
+  const scores = spin === "T_SPIN" ? T_SPIN_SCORES
+    : spin === "T_SPIN_MINI" ? T_SPIN_MINI_SCORES
+    : spin === "NONE" ? LINE_CLEAR_SCORES : [];
+  // 表にない組み合わせには得点を作らず、NaNの加算も防ぐ。
+  return (scores[lines] ?? 0) * level;
+}
+
 function lockPiece() {
   lastLockResult = { spin: detectTSpin(), lines: 0 };
   // 消去前の固定位置で判定。一部が見えていればLock Outにしない。
@@ -298,7 +309,7 @@ function lockPiece() {
   while (remaining.length < TOTAL_ROWS) remaining.unshift(Array(COLS).fill(0));
   board = remaining;
   // 今回の消去によるLevel上昇より前の倍率を使う。
-  addScore(LINE_CLEAR_SCORES[cleared] * level);
+  addScore(calculateClearScore(lastLockResult.spin, cleared, level));
   totalLines += cleared;
   level = Math.floor(totalLines / 10) + 1;
   levelElement.textContent = level;

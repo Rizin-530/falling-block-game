@@ -1377,7 +1377,7 @@ spinTests(`
   board[36].fill(7); for(let x=3;x<=5;x++) board[36][x]=0;
   level=5; totalLines=40; hardDrop();
   assert.deepEqual(lastLockResult,{spin:"T_SPIN_MINI",lines:1});
-  assert.equal(score,500); assert.equal(totalLines,41);
+  assert.equal(score,1000); assert.equal(totalLines,41);
   setupSpin();
   const beforeGhost=lastRotationKick;
   ghostY(); draw(); assert.equal(lastRotationKick,beforeGhost);
@@ -1386,7 +1386,7 @@ spinTests(`
   stepDown(true); assert.equal(score,0); assert.equal(lastRotationKick,0);
   assert.equal(ghostY(),piece.y);
   hardDrop(); assert.deepEqual(lastLockResult,{spin:"T_SPIN",lines:0});
-  assert.equal(score,0); assert.equal(lastRotationKick,null);
+  assert.equal(score,400); assert.equal(lastRotationKick,null);
 
   for(const dx of [-1,1]) {
     setupSpin(0,[]); assert.equal(move(dx,0),true);
@@ -1447,7 +1447,7 @@ spinTests(`
     assert.equal(detectTSpin(),"T_SPIN"); assert.equal(JSON.stringify(board),snapshot);
     hardDrop();
     assert.deepEqual(lastLockResult,{spin:"T_SPIN",lines});
-    assert.equal(score,[0,100,300,500][lines]*3);
+    assert.equal(score,[400,800,1200,1600][lines]*3);
     assert.equal(totalLines,20+lines); assert.equal(level,3);
     assert.equal(lastRotationKick,null);
   }
@@ -1484,4 +1484,92 @@ spinTests(`
   assert.equal(gameOver,true); assert.equal(lastRotationKick,null);
   assert.deepEqual(lastLockResult,{spin:"T_SPIN",lines:0});
 `);
-console.log("PASS: T-spin/full/mini corners in all orientations, both rotations and fifth kicks, movement history, drops/gravity, 0-3 clears with unchanged scores, internal boundaries, lock delay and lifecycle resets.");
+console.log("PASS: T-spin/full/mini corners in all orientations, both rotations and fifth kicks, movement history, drops/gravity, 0-3 clears, internal boundaries, lock delay and lifecycle resets.");
+
+spinTests(`
+  for(const startLevel of [1,2,5]) for(let lines=0;lines<=3;lines++) {
+    setupFifthKick(lines); level=startLevel; totalLines=(startLevel-1)*10;
+    hardDrop();
+    assert.equal(score,[400,800,1200,1600][lines]*startLevel);
+    assert.equal(Number(scoreElement.textContent),score);
+    assert.equal(totalLines,(startLevel-1)*10+lines); assert.equal(level,startLevel);
+  }
+  // Miniの得点統合テスト。分類済み姿勢の周囲を消去数に応じて構成。
+  function setupMiniClear(lines) {
+    setupSpin(1,[0,2,3]);
+    for(let dy=3-lines;dy<3;dy++) for(let x=0;x<COLS;x++) {
+      if(!piece.shape[dy][x-piece.x]) board[piece.y+dy][x]=7;
+    }
+    assert.equal(collides(piece.shape,piece.x,piece.y),false);
+    assert.equal(detectTSpin(),"T_SPIN_MINI");
+  }
+  for(const startLevel of [1,2,5]) for(let lines=0;lines<=2;lines++) {
+    setupMiniClear(lines); level=startLevel; totalLines=(startLevel-1)*10;
+    lockPiece();
+    assert.deepEqual(lastLockResult,{spin:"T_SPIN_MINI",lines});
+    assert.equal(score,[100,200,400][lines]*startLevel);
+    assert.equal(totalLines,(startLevel-1)*10+lines); assert.equal(level,startLevel);
+  }
+  for(const [startLines,startLevel,lines,points,newLevel] of [[9,1,1,800,2],[19,2,2,2400,3]]) {
+    setupFifthKick(lines); totalLines=startLines; level=startLevel;
+    hardDrop(); assert.equal(score,points); assert.equal(totalLines,startLines+lines);
+    assert.equal(level,newLevel); assert.equal(Number(levelElement.textContent),newLevel);
+  }
+  setupFifthKick(2); level=2; totalLines=10; hardDrop();
+  assert.equal(score,2400); assert.notEqual(score,3000);
+  for(const [lines,normal,spin] of [[1,300,2400],[2,900,3600]]) {
+    setupFifthKick(lines); lastRotationKick=null; hardDrop(); assert.equal(score,normal);
+    setupFifthKick(lines); hardDrop(); assert.equal(score,spin);
+  }
+  // Soft Dropで接近→回転→距離0のHard Dropなら資格とDrop点を両立できる。
+  setupFifthKick(2);
+  piece.x=5; piece.y=23; piece.rotation=0; piece.shape=ROTATIONS[2][0]; lastRotationKick=null;
+  level=2; totalLines=10;
+  for(let i=0;i<10;i++) stepDown(true);
+  assert.equal(piece.y,33); assert.equal(score,10);
+  assert.equal(move(-1,0),true);
+  rotate(); assert.equal(lastRotationKick,4); hardDrop(); assert.equal(score,2410);
+  // Hard Dropは即固定するため、実Dropで得た20点＋次のピースのT-Spinを確認。
+  restart(); spawnPiece(1); piece.y=28; hardDrop(); assert.equal(score,20);
+  const dropPoints=score;
+  setupFifthKick(2); score=dropPoints; level=2; totalLines=10;
+  hardDrop(); assert.equal(score,2420);
+  setupFifthKick(2); score=4; hardDrop(); assert.equal(score,3604);
+  // 想定外の分類・ライン数には未定義の得点を加えない。
+  for(const [spin,lines] of [["T_SPIN",4],["T_SPIN_MINI",3],["NONE",5],["UNKNOWN",1]]) {
+    assert.equal(calculateClearScore(spin,lines,2),0);
+  }
+  setupFifthKick(3); level=5; totalLines=40; hardDrop();
+  assert.equal(score,8000); assert.ok(highScore>=8000);
+  const record=highScore;
+  endGame(); assert.equal(score,8000); assert.equal(highScore,record);
+  restart(); assert.equal(score,0); assert.equal(totalLines,0); assert.equal(level,1);
+  assert.equal(lastRotationKick,null); assert.equal(lastLockResult,null); assert.equal(highScore,record);
+  setupSpin(0,[0,1,2],1,3,10); hardDrop();
+  assert.equal(gameOver,true); assert.equal(score,0); // Lock Outの早期終了は維持
+`);
+console.log("PASS: full/mini scoring at levels 1/2/5, zero clears, pre-clear levels, no double awards, unscaled drop totals, invalid combinations and restart/top out.");
+
+const spinScoreStorage = {};
+const spinScoreA = createGame(spinScoreStorage);
+const spinScoreB = createGame(spinScoreStorage);
+const awardSpinZero = `
+  spawnPiece(2); piece.x=3; piece.y=35;
+  board[35][3]=7; board[35][5]=7; board[37][5]=7;
+  rotate(); rotate(-1);
+  assert.equal(detectTSpin(),"T_SPIN"); hardDrop();
+`;
+spinScoreA("level=5; totalLines=40;" + awardSpinZero + "assert.equal(score,2000)");
+spinScoreB(awardSpinZero + "assert.equal(score,400); assert.equal(highScore,2000)");
+assert.equal(spinScoreStorage["falling-block-high-score"],"2000");
+createGame(spinScoreStorage)("assert.equal(highScore,2000)");
+const failedSpinStorage = {};
+Object.defineProperty(failedSpinStorage,"falling-block-high-score", {
+  get() { return "0"; }, set() { throw new Error("Storage unavailable"); },
+});
+createGame(failedSpinStorage)(awardSpinZero + `
+  assert.equal(score,400); assert.equal(highScore,400); assert.equal(gameOver,false);
+  assert.equal(Number(scoreElement.textContent),400);
+  restart(); assert.equal(highScore,400); assert.equal(score,0);
+`);
+console.log("PASS: T-spin scores through shared high-score storage, reload and write failure.");
