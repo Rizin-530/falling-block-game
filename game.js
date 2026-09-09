@@ -4,6 +4,7 @@ const COLS = 10;
 const VISIBLE_ROWS = 20;
 const HIDDEN_ROWS = 20;
 const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
+const NEXT_COUNT = 5;
 // piece.yとboardは内部座標。Spawn枠は表示最上段の1行上。
 const SPAWN_Y = HIDDEN_ROWS - 1;
 const CELL = 30;
@@ -71,7 +72,7 @@ let piece;
 let score;
 let gameOver;
 let paused;
-let upcomingType;
+let nextQueue = [];
 let heldType;
 let holdUsed;
 let totalLines;
@@ -103,7 +104,7 @@ function collides(shape, x, y) {
   }));
 }
 
-function spawnPiece(type = upcomingType) {
+function spawnPiece(type = nextQueue[0]) {
   const shape = ROTATIONS[type][0];
   piece = { shape, rotation: 0, x: Math.floor((COLS - shape[0].length) / 2), y: SPAWN_Y, color: type + 1 };
   dropElapsed = 0;
@@ -120,8 +121,8 @@ function endGame() {
 }
 
 function advancePiece() {
-  const type = upcomingType;
-  upcomingType = nextType();
+  const type = nextQueue.shift();
+  while (nextQueue.length < NEXT_COUNT) nextQueue.push(nextType());
   spawnPiece(type);
 }
 
@@ -159,19 +160,22 @@ function ghostY() {
   return y;
 }
 
-function drawPreview(id, type) {
+function drawPreview(id, types) {
   const preview = document.getElementById(id);
   const ctx = preview.getContext("2d");
   ctx.clearRect(0, 0, preview.width, preview.height);
-  if (type === null) return;
-  const shape = SHAPES[type].map(row => row.slice());
-  const size = 24;
-  const left = (preview.width - shape[0].length * size) / 2;
-  const top = (preview.height - shape.length * size) / 2;
-  ctx.fillStyle = COLORS[type + 1];
-  shape.forEach((row, y) => row.forEach((cell, x) => {
-    if (cell) ctx.fillRect(left + x * size + 1, top + y * size + 1, size - 2, size - 2);
-  }));
+  const slotHeight = preview.height / types.length;
+  const size = id === "next" ? 16 : 24;
+  types.forEach((type, index) => {
+    if (type === null) return;
+    const shape = SHAPES[type];
+    const left = (preview.width - shape[0].length * size) / 2;
+    const top = index * slotHeight + (slotHeight - shape.length * size) / 2;
+    ctx.fillStyle = COLORS[type + 1];
+    shape.forEach((row, y) => row.forEach((cell, x) => {
+      if (cell) ctx.fillRect(left + x * size + 1, top + y * size + 1, size - 2, size - 2);
+    }));
+  });
 }
 
 function isGrounded() {
@@ -297,8 +301,8 @@ function drawCell(x, y, color) {
 }
 
 function draw() {
-  drawPreview("next", upcomingType);
-  drawPreview("hold", heldType);
+  drawPreview("next", nextQueue);
+  drawPreview("hold", [heldType]);
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.strokeStyle = "#191c22";
   context.lineWidth = 1;
@@ -344,7 +348,7 @@ function restart() {
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   bag = [];
-  upcomingType = nextType();
+  nextQueue = [nextType()];
   dropElapsed = 0;
   lastTime = null;
   scoreElement.textContent = "0";

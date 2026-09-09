@@ -31,6 +31,7 @@ h2 { color: #adb1ba; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; 
 .preview-panel h2 { display: flex; align-items: center; justify-content: space-between; min-height: 24px; }
 canvas { display: block; }
 .preview-panel canvas { width: 120px; height: 80px; margin: 12px auto; }
+#next { width: 120px; height: 200px; margin: 4px auto; }
 .hint { color: #969ba5; font-size: 11px; line-height: 1.7; }
 .preview-panel .hint { text-align: center; }
 #board {
@@ -79,6 +80,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   .left-panel > .preview-panel, .controls { grid-column: auto; grid-row: auto; }
 }
 @media (max-height: 800px) {
+  #next { width: 108px; height: 180px; }
   main { padding-top: 12px; padding-bottom: 12px; }
   .heading { margin-bottom: 12px; }
   .eyebrow { margin-bottom: 4px; }
@@ -89,4 +91,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   .stat + .stat { padding-top: 10px; }
   .stat strong { margin-top: 2px; }
   .controls dl { margin-top: 10px; gap: 8px; }
+}
+@media (max-height: 650px) {
+  #next { width: 96px; height: 160px; }
 }

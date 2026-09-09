@@ -29,7 +29,7 @@ function createGame(storage = {}) {
       getElementById(id) {
         return elements[id] ??= {
           width: id === "board" ? 300 : 120,
-          height: id === "board" ? 600 : 80,
+          height: id === "board" ? 600 : id === "next" ? 200 : 80,
           getContext: () => id === "board" ? context : previewContext,
           addEventListener(name, listener) {
             this[name] = (event = { timeStamp: vm.runInContext("lastTime ?? 0", sandbox) }) => listener(event);
@@ -108,29 +108,29 @@ run(`
   }
 
   restart();
-  const next = upcomingType;
+  const next = nextQueue[0];
   hardDrop();
   assert.equal(piece.color - 1, next);
   const beforeHold = piece.color - 1;
-  const afterHold = upcomingType;
+  const afterHold = nextQueue[0];
   key("KeyC");
   assert.equal(heldType, beforeHold);
   assert.equal(piece.color - 1, afterHold);
   const heldPiece = JSON.stringify(piece);
-  const heldNext = upcomingType;
+  const heldNext = nextQueue[0];
   key("KeyC");
   assert.equal(JSON.stringify(piece), heldPiece);
-  assert.equal(upcomingType, heldNext);
+  assert.equal(nextQueue[0], heldNext);
   hardDrop();
   assert.equal(holdUsed, false);
   const beforeSwap = piece.color - 1;
-  const nextBeforeSwap = upcomingType;
+  const nextBeforeSwap = nextQueue[0];
   key("ArrowUp"); key("ArrowDown"); key("KeyC");
   assert.equal(piece.color - 1, beforeHold);
   assert.equal(heldType, beforeSwap);
   assert.equal(piece.y, SPAWN_Y + 0);
   assert.equal(JSON.stringify(piece.shape), JSON.stringify(ROTATIONS[beforeHold][0]));
-  assert.equal(upcomingType, nextBeforeSwap);
+  assert.equal(nextQueue[0], nextBeforeSwap);
 
   restart();
   board[HIDDEN_ROWS + 10].fill(1);
@@ -161,10 +161,10 @@ run(`
   restart();
   update(0); update(300);
   key("KeyP");
-  const pausedState = JSON.stringify([board, piece, score, heldType, upcomingType]);
+  const pausedState = JSON.stringify([board, piece, score, heldType, nextQueue[0]]);
   for (const code of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyC"]) key(code);
   update(10000);
-  assert.equal(JSON.stringify([board, piece, score, heldType, upcomingType]), pausedState);
+  assert.equal(JSON.stringify([board, piece, score, heldType, nextQueue[0]]), pausedState);
   assert.equal(dropElapsed, 300);
   pauseButton.click({ timeStamp: 20000 });
   assert.equal(paused, false);
@@ -548,12 +548,12 @@ rotationTests(`
   // HOLDで向きを初期化し、NEXTを余分に消費しない。
   restart(); spawnPiece(2); piece.y = HIDDEN_ROWS + 5; rotate(); hold();
   hardDrop();
-  const nextBefore = upcomingType;
+  const nextBefore = nextQueue[0];
   hold();
   assert.equal(piece.color, 3);
   assert.equal(piece.rotation, 0);
   assert.deepEqual(piece.shape, ROTATIONS[2][0]);
-  assert.equal(upcomingType, nextBefore);
+  assert.equal(nextQueue[0], nextBefore);
   assert.equal(JSON.stringify(ROTATIONS), originalStates);
 `);
 console.log("PASS: fixed rotation centers, four states, O stability, I coordinates, collision rejection, all-orientation ghost/drop and HOLD reset.");
@@ -1147,10 +1147,10 @@ upperBoardTests(`
   // 全セルが非表示で接地した場合も500msまでは固定しない。
   fresh(); piece.x=0; piece.y=HIDDEN_ROWS-3;
   board[HIDDEN_ROWS-1][0]=board[HIDDEN_ROWS-1][1]=7;
-  const next=upcomingType;
+  const next=nextQueue[0];
   press("ArrowDown",0); update(499); assert.equal(gameOver,false); assert.equal(score,0);
   update(500); assert.ok(gameOver); assert.equal(occupied(),6);
-  assert.equal(upcomingType,next); assert.ok(pauseButton.disabled);
+  assert.equal(nextQueue[0],next); assert.ok(pauseButton.disabled);
   assert.ok(Object.values(heldKeys).every(value=>!value));
   const over=JSON.stringify([board,piece,score]);
   key("ArrowUp"); key("KeyZ"); key("Space"); update(2000);
@@ -1216,3 +1216,74 @@ upperBoardTests(`
   assert.equal(lockElapsed,0); assert.equal(lockResets,0); assert.equal(lastTime,null);
 `);
 console.log("PASS: hidden rows, spawn for all pieces, upper rotations/kicks, draw boundaries, ghost/drop, line shifts, block/lock out and restart.");
+
+const nextQueueTests = createGame();
+nextQueueTests(`
+  function validQueue() {
+    assert.equal(nextQueue.length,5);
+    assert.ok(nextQueue.every(type=>Number.isInteger(type) && type>=0 && type<7));
+    assert.ok(piece.color>=1 && piece.color<=7);
+  }
+  let seed=42;
+  Math.random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+  // 同じ乱数列の7-bag直接出力と比較。先読みで出現順を変えない。
+  bag=[];
+  const expected=Array.from({length:10011},()=>nextType());
+  seed=42; restart(); validQueue();
+  assert.equal(piece.color-1,expected[0]);
+  assert.deepEqual(nextQueue,expected.slice(1,6));
+  for(let i=1;i<=10000;i++) {
+    const before=nextQueue.slice();
+    // 積み上がりによる終了を避け、通常の固定経路でキュー消費を検証。
+    board.forEach(row=>row.fill(0)); hardDrop(); validQueue();
+    assert.equal(piece.color-1,before[0]);
+    assert.equal(piece.color-1,expected[i]);
+    assert.deepEqual(nextQueue,expected.slice(i+1,i+6));
+    assert.deepEqual(nextQueue.slice(0,4),before.slice(1));
+  }
+  for(let i=0;i+7<=expected.length;i+=7) assert.equal(new Set(expected.slice(i,i+7)).size,7);
+  // bag残り2個から、次bagへまたがって5個補充。
+  bag=[6,5]; nextQueue=[2]; advancePiece();
+  assert.equal(piece.color,3); assert.deepEqual(nextQueue.slice(0,2),[5,6]); validQueue();
+  assert.equal(new Set([...nextQueue.slice(2),...bag]).size,7);
+  restart(); let before=nextQueue.slice(); const original=piece.color-1;
+  hold(); assert.equal(heldType,original); assert.equal(piece.color-1,before[0]);
+  assert.deepEqual(nextQueue.slice(0,4),before.slice(1));
+  before=nextQueue.slice(); hold(); assert.deepEqual(nextQueue,before);
+  hardDrop(); before=nextQueue.slice(); hold(); assert.deepEqual(nextQueue,before);
+  assert.equal(piece.color-1,original); assert.equal(piece.rotation,0); assert.equal(piece.y,SPAWN_Y);
+  const oldQueue=nextQueue; seed=42; restart();
+  assert.notEqual(nextQueue,oldQueue); assert.deepEqual(nextQueue,expected.slice(1,6));
+  // Block Outでは出現に使った1個だけ消費し、終了後は維持。
+  before=nextQueue.slice();
+  board[SPAWN_Y].fill(7); board[HIDDEN_ROWS].fill(7);
+  advancePiece(); assert.ok(gameOver); validQueue();
+  assert.equal(piece.color-1,before[0]); assert.deepEqual(nextQueue.slice(0,4),before.slice(1));
+  before=nextQueue.slice(); key("Space"); key("KeyC"); update(5000); draw();
+  assert.deepEqual(nextQueue,before);
+  // Lock OutとPauseもキューを進めない。
+  restart(); spawnPiece(1); piece.x=0; piece.y=HIDDEN_ROWS-3;
+  before=nextQueue.slice(); lockPiece(); assert.ok(gameOver); assert.deepEqual(nextQueue,before);
+  restart(); before=nextQueue.slice(); key("KeyP"); update(1000); key("Space");
+  assert.deepEqual(nextQueue,before);
+  // NEXT描画を記録し、順番・中央配置・描画によるキュー不変を確認。
+  const preview=document.getElementById("next");
+  const rectangles=[];
+  const ctx={clearRect(){rectangles.length=0;},fillRect(x,y,w,h){rectangles.push({x,y,w,h,color:this.fillStyle});}};
+  preview.getContext=()=>ctx;
+  for(let first=0;first<7;first++) {
+    nextQueue=Array.from({length:5},(_,i)=>(first+i)%7);
+    const state=JSON.stringify([nextQueue,bag,piece]); const randomBefore=seed;
+    draw(); assert.equal(JSON.stringify([nextQueue,bag,piece]),state); assert.equal(seed,randomBefore);
+    assert.equal(rectangles.length,20);
+    for(let i=0;i<5;i++) {
+      const cells=rectangles.slice(i*4,i*4+4);
+      assert.ok(cells.every(cell=>cell.color===COLORS[nextQueue[i]+1]));
+      const left=Math.min(...cells.map(c=>c.x)), right=Math.max(...cells.map(c=>c.x+c.w));
+      const top=Math.min(...cells.map(c=>c.y)), bottom=Math.max(...cells.map(c=>c.y+c.h));
+      assert.equal((left+right)/2,60); assert.equal((top+bottom)/2,i*40+20);
+      assert.ok(top>=i*40 && bottom<=(i+1)*40);
+    }
+  }
+`);
+console.log("PASS: NEXT5 order, 10,000 fixed pieces, seeded 7-bag equivalence, bag boundary, HOLD, restart, top out, pause and preview centering.");
