@@ -188,23 +188,31 @@ function move(dx, dy) {
   return true;
 }
 
-// SRSの右回転候補。キーは回転前>回転後、座標は右・下が正。
+// SRSの左右回転候補。キーは回転前>回転後、座標は右・下が正。
 // https://erikdemaine.org/papers/TetrisPieces_FUN2024/paper.pdf の表2・3
 const COMMON_KICKS = {
   "0>1": [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],
   "1>2": [[0,0], [1,0], [1,1], [0,-2], [1,-2]],
   "2>3": [[0,0], [1,0], [1,-1], [0,2], [1,2]],
   "3>0": [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]],
+  "0>3": [[0,0], [1,0], [1,-1], [0,2], [1,2]],
+  "3>2": [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]],
+  "2>1": [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],
+  "1>0": [[0,0], [1,0], [1,1], [0,-2], [1,-2]],
 };
 const I_KICKS = {
   "0>1": [[0,0], [-2,0], [1,0], [-2,1], [1,-2]],
   "1>2": [[0,0], [-1,0], [2,0], [-1,-2], [2,1]],
   "2>3": [[0,0], [2,0], [-1,0], [2,-1], [-1,2]],
   "3>0": [[0,0], [1,0], [-2,0], [1,2], [-2,-1]],
+  "0>3": [[0,0], [-1,0], [2,0], [-1,-2], [2,1]],
+  "3>2": [[0,0], [1,0], [-2,0], [1,-2], [-2,1]],
+  "2>1": [[0,0], [1,0], [-2,0], [1,2], [-2,-1]],
+  "1>0": [[0,0], [2,0], [-1,0], [2,-1], [-1,2]],
 };
 
-function rotate() {
-  const rotation = (piece.rotation + 1) % 4;
+function rotate(direction = 1) {
+  const rotation = (piece.rotation + direction + 4) % 4;
   const rotated = ROTATIONS[piece.color - 1][rotation];
   const transition = `${piece.rotation}>${rotation}`;
   const kicks = piece.color === 2 ? [[0,0]]
@@ -333,7 +341,7 @@ function restart() {
 
 document.addEventListener("keydown", event => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
-  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyR", "KeyC", "KeyP"].includes(event.code)) return;
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyR", "KeyC", "KeyP", "KeyZ"].includes(event.code)) return;
   event.preventDefault();
   if (event.repeat || heldKeys[event.code]) return;
   if (event.code === "KeyR") {
@@ -360,6 +368,7 @@ document.addEventListener("keydown", event => {
     case "ArrowLeft": move(-1, 0); break;
     case "ArrowRight": move(1, 0); break;
     case "ArrowUp": if (!event.repeat) rotate(); break;
+    case "KeyZ": if (!event.repeat) rotate(-1); break;
     case "ArrowDown": stepDown(true); dropElapsed = 0; break;
     case "Space": if (!event.repeat) hardDrop(); break;
     case "KeyC": if (!event.repeat) hold(); break;

@@ -981,3 +981,78 @@ failRead = true;
 readFailureGame("addScore(100); assert.equal(highScore,100); assert.equal(Number(highScoreElement.textContent),100); restart(); assert.equal(score,0)");
 assert.equal(unexpectedWrites,0);
 console.log("PASS: shared high-score storage, stale tabs, update order, monotonic records, display, invalid values and read/write failures.");
+
+const leftRotationTests = createGame();
+leftRotationTests(`
+  function setup(type, state=0, x=3, y=5) {
+    restart(); spawnPiece(type);
+    piece.rotation=state; piece.shape=ROTATIONS[type][state]; piece.x=x; piece.y=y;
+    assert.ok(!collides(piece.shape,x,y)); update(0);
+  }
+  for(let type=0;type<7;type++) {
+    setup(type); const before=JSON.stringify(piece);
+    for(const state of [3,2,1,0]) {
+      key("KeyZ"); assert.equal(piece.rotation,state);
+      assert.deepEqual(piece.shape,ROTATIONS[type][state]);
+      assert.deepEqual([piece.x,piece.y],[3,5]);
+    }
+    assert.equal(JSON.stringify(piece),before);
+    key("ArrowUp"); key("KeyZ"); assert.equal(JSON.stringify(piece),before);
+    key("KeyZ"); key("ArrowUp"); assert.equal(JSON.stringify(piece),before);
+  }
+  // 左右壁、床、I型の全左遷移。期待位置はSRS表から指定。
+  const cases=[
+    [2,1,-1,5,0,5], [2,3,8,5,7,5], [2,0,3,18,4,17],
+    [0,1,-2,5,0,5], [0,3,8,5,6,5], [0,0,3,18,2,16],
+    [0,2,3,17,1,16],
+  ];
+  for(const [type,state,x,y,ex,ey] of cases) {
+    setup(type,state,x,y); key("KeyZ");
+    assert.deepEqual([piece.x,piece.y,piece.rotation],[ex,ey,(state+3)%4]);
+    assert.ok(!collides(piece.shape,piece.x,piece.y));
+    const snapshot=JSON.stringify([piece,board]);
+    const landing=ghostY(); assert.equal(JSON.stringify([piece,board]),snapshot);
+    assert.ok(!collides(piece.shape,piece.x,landing));
+    assert.ok(collides(piece.shape,piece.x,landing+1));
+    const cells=[];
+    piece.shape.forEach((row,dy)=>row.forEach((cell,dx)=>{if(cell) cells.push([piece.x+dx,landing+dy]);}));
+    const points=(landing-piece.y)*2;
+    key("Space"); assert.equal(score,points);
+    cells.forEach(([cx,cy])=>assert.equal(board[cy][cx],type+1));
+  }
+  for(const type of [2,3,4,5,6]) {
+    setup(type,1,-1,5); key("KeyZ"); assert.equal(piece.x,0); assert.equal(piece.rotation,0);
+  }
+  setup(2); board[7][4]=7; key("KeyZ");
+  assert.deepEqual([piece.x,piece.y,piece.rotation],[4,5,3]);
+  assert.equal(board[7][4],7);
+  for(const type of [0,2,3,4,5,6]) {
+    for(let state=0;state<4;state++) {
+      setup(type,state); board.forEach(row=>row.fill(7));
+      piece.shape.forEach((row,dy)=>row.forEach((cell,dx)=>{if(cell) board[piece.y+dy][piece.x+dx]=0;}));
+      lockElapsed=300; lockResets=4;
+      const before=JSON.stringify([piece,board,lockElapsed,lockResets]);
+      key("KeyZ"); assert.equal(JSON.stringify([piece,board,lockElapsed,lockResets]),before);
+    }
+  }
+  setup(1,0,0,18);
+  for(let i=0;i<4;i++) { key("KeyZ"); assert.deepEqual([piece.x,piece.y],[0,18]); assert.deepEqual(piece.shape,[[1,1],[1,1]]); }
+  setup(2,0,3,18); key("KeyZ",false,{timeStamp:490}); update(500);
+  assert.equal(lockElapsed,10); assert.equal(lockResets,1);
+  update(989); assert.equal(board.flat().filter(Boolean).length,0);
+  update(990); assert.equal(board.flat().filter(Boolean).length,4);
+  setup(2,0,3,18); lockResets=15; lockElapsed=400; key("KeyZ");
+  assert.equal(lockResets,15); assert.equal(lockElapsed,400);
+  setup(2); key("KeyZ"); key("KeyC"); key("Space"); key("KeyC");
+  assert.equal(piece.color,3); assert.equal(piece.rotation,0);
+  assert.deepEqual([piece.x,piece.y],[3,0]); assert.equal(lockResets,0);
+  setup(2); press("KeyZ",0); press("KeyZ",10,true); assert.equal(piece.rotation,3);
+  for(const modifier of ["ctrlKey","altKey","metaKey"]) {
+    key("KeyZ",false,{[modifier]:true}); assert.equal(piece.rotation,3);
+  }
+  key("KeyP"); key("KeyZ"); assert.equal(piece.rotation,3);
+  key("KeyR"); assert.equal(piece.rotation,0);
+  board[0].fill(7); board[1].fill(7); spawnPiece(2);
+  key("KeyZ"); assert.equal(piece.rotation,0);
+`);
+console.log("PASS: counterclockwise rotation, inverse turns, SRS kicks, blocked turns, lock limits/timing, ghost/drop, HOLD and Z input guards.");
