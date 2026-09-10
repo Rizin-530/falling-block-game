@@ -113,6 +113,7 @@ run(`
   // 1〜4行の同時消去と従来の得点。
   for (let count = 1; count <= 4; count++) {
     restart();
+    board[0][0] = 7; // 通常得点テストなのでPerfect Clearにはしない。
     for (let y = TOTAL_ROWS - count; y < TOTAL_ROWS; y++) {
       board[y].fill(2);
       board[y][4] = 0;
@@ -121,7 +122,7 @@ run(`
     lockPiece();
     assert.equal(score, [0, 100, 300, 500, 800][count]);
     assert.equal(totalLines, count);
-    assert.equal(board.flat().filter(Boolean).length, 4 - count);
+    assert.equal(board.flat().filter(Boolean).length, 5 - count);
   }
 
   restart();
@@ -1318,6 +1319,7 @@ levelScoreTests(`
   function prepareClear(lines, startLevel, startLines=(startLevel-1)*10) {
     restart(); spawnPiece(0);
     level=startLevel; totalLines=startLines;
+    board[0][0]=7; // 通常ライン得点だけを確認するためPerfect Clearを避ける。
     piece.rotation=1; piece.shape=ROTATIONS[0][1]; piece.x=2; piece.y=TOTAL_ROWS-4;
     for(let y=TOTAL_ROWS-lines;y<TOTAL_ROWS;y++) { board[y].fill(7); board[y][4]=0; }
   }
@@ -1329,7 +1331,7 @@ levelScoreTests(`
       assert.equal(Number(scoreElement.textContent),score);
       assert.equal(totalLines,(startLevel-1)*10+lines);
       assert.equal(level,startLevel);
-      assert.equal(board.flat().filter(Boolean).length,4-lines);
+      assert.equal(board.flat().filter(Boolean).length,5-lines);
     }
   }
   for(const [startLines,startLevel,lines,points,newLines,newLevel] of [
@@ -1621,6 +1623,7 @@ const b2bFixtures = `
         if(!piece.shape[dy][x-3]) board[35+dy][x]=7;
       }
     }
+    board[0][0]=7; // B2B/Combo単独テストではPerfect Clearボーナスを含めない。
     assert.equal(collides(piece.shape,piece.x,piece.y),false);
     assert.equal(detectTSpin(),spin);
   }
@@ -2052,6 +2055,7 @@ marathonTests(`
     level = Math.floor(totalLines / 10) + 1;
     levelElement.textContent = level;
     board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    board[0][0] = 7; // Marathon単独テストではPerfect Clearボーナスを含めない。
     for (let y = TOTAL_ROWS - cleared; y < TOTAL_ROWS; y++) {
       board[y].fill(7);
       board[y][4] = 0;
@@ -2182,6 +2186,7 @@ resultsTests(`
   // 150を超えた最終値と最終T-Spin得点をそのまま表示する。
   restart(); totalLines = 148; level = 15;
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  board[0][0] = 7;
   for (let y = TOTAL_ROWS - 4; y < TOTAL_ROWS; y++) { board[y].fill(7); board[y][4] = 0; }
   piece = { rotation: 1, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 1 };
   lockPiece();
@@ -2189,6 +2194,7 @@ resultsTests(`
 
   restart(); totalLines = 149; level = 15;
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  board[0][0] = 7;
   board[TOTAL_ROWS - 1].fill(7); board[TOTAL_ROWS - 1][4] = 0;
   piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 3 };
   detectTSpin = () => "T_SPIN";
@@ -2204,6 +2210,7 @@ debugResultsTests(`
   debugLevelSelect.value = "15"; debugLevelSelect.change();
   totalLines = 149; level = 15; addScore(2000);
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  board[0][0] = 7;
   board[TOTAL_ROWS - 1].fill(7); board[TOTAL_ROWS - 1][4] = 0;
   piece = { rotation: 1, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 1 };
   lockPiece();
@@ -2219,3 +2226,103 @@ debugResultsTests(`
   assert.equal(resultsElement.hidden, true); assert.equal(level, 13); assert.equal(totalLines, 120);
 `);
 console.log("PASS: Results visibility, Game Over/Complete titles, final values, high score, debug label, frozen input and shared Restart paths.");
+
+const perfectClearStorage = {};
+const perfectClearTests = createGame(perfectClearStorage);
+perfectClearTests(`
+  const originalDetectTSpin = detectTSpin;
+  function preparePerfectClear(lines, startLevel = 1, startLines = (startLevel - 1) * 10) {
+    restart();
+    level = startLevel; totalLines = startLines; levelElement.textContent = level;
+    board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    const shapes = {
+      1: [[1,1,1,1]],
+      2: [[1,1],[1,1]],
+      3: [[1,0],[1,1],[1,0]],
+      4: [[1],[1],[1],[1]],
+    };
+    const shape = shapes[lines];
+    piece = { rotation: 0, shape, x: 4, y: TOTAL_ROWS - lines, color: lines === 3 ? 3 : lines === 2 ? 2 : 1 };
+    for (let y = TOTAL_ROWS - lines; y < TOTAL_ROWS; y++) board[y].fill(7);
+    shape.forEach((row, dy) => row.forEach((cell, dx) => {
+      if (cell) board[piece.y + dy][piece.x + dx] = 0;
+    }));
+    lastRotationKick = null;
+  }
+
+  // 1～4ラインの判定と代表的な追加得点。
+  for (const [startLevel, expected] of [
+    [1, [0,900,1500,2300,2800]],
+    [2, [0,1800,3000,4600,5600]],
+  ]) for (let lines = 1; lines <= 4; lines++) {
+    preparePerfectClear(lines, startLevel);
+    lockPiece();
+    assert.equal(lastPerfectClear, true);
+    assert.equal(score, expected[lines]);
+    assert.equal(board.length, TOTAL_ROWS);
+    assert.ok(board.every(row => row.length === COLS && row.every(cell => cell === 0)));
+    assert.equal(gameOver, false); assert.equal(marathonComplete, false);
+    assert.ok(piece); // Completeでなければ次ピースを通常Spawnする。
+    assert.equal(clearEventElement.textContent, "PERFECT CLEAR");
+  }
+
+  // 表示領域が空でもhidden rowに残れば不成立。可視領域の1ブロック・0ラインも不成立。
+  preparePerfectClear(1); board[0][0] = 7; lockPiece();
+  assert.equal(lastPerfectClear, false); assert.equal(score, 100);
+  preparePerfectClear(1); board[HIDDEN_ROWS][0] = 7; lockPiece();
+  assert.equal(lastPerfectClear, false); assert.equal(score, 100);
+  restart(); spawnPiece(1); piece.y = TOTAL_ROWS - 2; lockPiece();
+  assert.equal(lastLockResult.lines, 0); assert.equal(lastPerfectClear, false); assert.equal(score, 0);
+
+  // B2B適用済み通常Tetrisだけ3200を使い、最初のTetrisは2000を使う。
+  preparePerfectClear(4); lockPiece();
+  assert.equal(score, 2800); assert.equal(backToBackActive, true);
+  preparePerfectClear(4); backToBackActive = true; lockPiece();
+  assert.equal(score, 4400); assert.equal(backToBackActive, true);
+
+  // T-Spin部分だけにB2B倍率を掛け、Double PCは通常の1200を加算する。
+  preparePerfectClear(2, 2); detectTSpin = () => "T_SPIN";
+  backToBackActive = true; lockPiece();
+  assert.equal(lastLockResult.spin, "T_SPIN"); assert.equal(lastPerfectClear, true);
+  assert.equal(score, 6000);
+  assert.equal(clearEventElement.textContent, "PERFECT CLEAR · T-SPIN DOUBLE");
+  detectTSpin = originalDetectTSpin;
+
+  // Comboは独立加算し、Level境界では消去前Levelを両方の得点へ使う。
+  preparePerfectClear(1); comboCount = 0; lockPiece();
+  assert.equal(score, 950); assert.equal(comboCount, 1);
+  preparePerfectClear(1, 1, 9); lockPiece();
+  assert.equal(score, 900); assert.equal(totalLines, 10); assert.equal(level, 2);
+
+  // Restartは表示状態とtimerを消し、前ゲームのtimerも新ゲームへ干渉しない。
+  preparePerfectClear(1); lockPiece(); assert.equal(clearEventElement.textContent, "PERFECT CLEAR");
+  restart(); assert.equal(lastPerfectClear, false); assert.equal(clearEventElement.textContent, "");
+  advanceDisplayTime(CLEAR_EVENT_DURATION); assert.equal(clearEventElement.textContent, "");
+
+  // Marathonの最終得点・High Score・ResultsへPCボーナスを反映する。
+  preparePerfectClear(1, 15, 149); lockPiece();
+  assert.equal(lastPerfectClear, true); assert.equal(score, 13500);
+  assert.equal(totalLines, 150); assert.equal(level, 16); assert.equal(marathonComplete, true);
+  assert.equal(highScore, 13500); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "13500");
+  assert.equal(Number(resultsScoreElement.textContent), 13500);
+  assert.equal(clearEventElement.textContent, "PERFECT CLEAR");
+
+  preparePerfectClear(4, 15, 148); lockPiece();
+  assert.equal(score, 42000); assert.equal(totalLines, 152); assert.equal(marathonComplete, true);
+  assert.equal(Number(resultsScoreElement.textContent), 42000);
+  assert.equal(Number(resultsLinesElement.textContent), 152);
+`);
+
+const debugPerfectClearStorage = { "falling-block-high-score": "500" };
+const debugPerfectClearTests = createGame(debugPerfectClearStorage);
+debugPerfectClearTests(`
+  debugLevelSelect.value = "5"; debugLevelSelect.change();
+  board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  board[TOTAL_ROWS - 1].fill(7);
+  for (let x = 3; x < 7; x++) board[TOTAL_ROWS - 1][x] = 0;
+  piece = { rotation: 0, shape: [[1,1,1,1]], x: 3, y: TOTAL_ROWS - 1, color: 1 };
+  lockPiece();
+  assert.equal(lastPerfectClear, true); assert.equal(score, 4500);
+  assert.equal(highScore, 500); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "500");
+`);
+console.log("PASS: Perfect Clear detection across all/hidden rows, level scores, B2B Tetris, T-Spin, Combo, Marathon, Results, storage, feedback and restart.");

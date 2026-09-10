@@ -7,6 +7,8 @@ const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
 const NEXT_COUNT = 5;
 const MARATHON_TARGET_LINES = 150;
 const LINE_CLEAR_SCORES = [0, 100, 300, 500, 800];
+const PERFECT_CLEAR_SCORES = [0, 800, 1200, 1800, 2000];
+const B2B_TETRIS_PERFECT_CLEAR_SCORE = 3200;
 // 代表的なGuideline系得点。Mini Doubleも含む（https://tetris.wiki/Scoring）。
 const T_SPIN_SCORES = [400, 800, 1200, 1600];
 const T_SPIN_MINI_SCORES = [100, 200, 400];
@@ -105,6 +107,7 @@ let bag = [];
 let lastRotationKick = null;
 // 確定済みの結果は次のSpawnでも保持し、進行中ピースの回転資格とは分離する。
 let lastLockResult = null;
+let lastPerfectClear = false;
 let backToBackActive = false;
 // -1: 継続なし、0: 最初の消去、1以上: Comboボーナス対象。
 let comboCount = -1;
@@ -125,10 +128,16 @@ function clearSpinFeedback() {
 
 function showSpinFeedback() {
   clearSpinFeedback();
-  if (gameOver || marathonComplete || lastLockResult.spin === "NONE") return;
-  const name = lastLockResult.spin === "T_SPIN_MINI" ? "T-SPIN MINI" : "T-SPIN";
-  const suffix = ["", " SINGLE", " DOUBLE", " TRIPLE"][lastLockResult.lines];
-  clearEventElement.textContent = name + suffix;
+  if (gameOver || (marathonComplete && !lastPerfectClear)) return;
+  const messages = [];
+  if (lastPerfectClear) messages.push("PERFECT CLEAR");
+  if (lastLockResult.spin !== "NONE") {
+    const name = lastLockResult.spin === "T_SPIN_MINI" ? "T-SPIN MINI" : "T-SPIN";
+    const suffix = ["", " SINGLE", " DOUBLE", " TRIPLE"][lastLockResult.lines];
+    messages.push(name + suffix);
+  }
+  if (messages.length === 0) return;
+  clearEventElement.textContent = messages.join(" · ");
   // 表示だけの実時間タイマー。Pause中も消え、ゲーム進行の時計には触れない。
   clearEventTimer = setTimeout(clearSpinFeedback, CLEAR_EVENT_DURATION);
 }
@@ -369,8 +378,18 @@ function isDifficultClear(spin, lines) {
     || (spin === "T_SPIN_MINI" && lines >= 1 && lines <= 2);
 }
 
+function isBoardEmpty() {
+  return board.every(row => row.every(cell => cell === 0));
+}
+
+function calculatePerfectClearScore(lines, level, b2bTetris) {
+  const base = b2bTetris ? B2B_TETRIS_PERFECT_CLEAR_SCORE : PERFECT_CLEAR_SCORES[lines] ?? 0;
+  return base * level;
+}
+
 function lockPiece() {
   lastLockResult = { spin: detectTSpin(), lines: 0 };
+  lastPerfectClear = false;
   // 消去前の固定位置で判定。一部が見えていればLock Outにしない。
   const lockOut = piece.shape.every((row, dy) => row.every(cell => !cell || piece.y + dy < HIDDEN_ROWS));
   piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
@@ -385,13 +404,19 @@ function lockPiece() {
   lastLockResult.lines = cleared;
   while (remaining.length < TOTAL_ROWS) remaining.unshift(Array(COLS).fill(0));
   board = remaining;
+  lastPerfectClear = cleared > 0 && isBoardEmpty();
   // 今回の消去によるLevel上昇より前の倍率を使う。
   let clearScore = calculateClearScore(lastLockResult.spin, cleared, level);
   const difficult = isDifficultClear(lastLockResult.spin, cleared);
-  if (backToBackActive && difficult) clearScore = clearScore * 3 / 2;
+  const b2bBonusApplied = backToBackActive && difficult;
+  if (b2bBonusApplied) clearScore = clearScore * 3 / 2;
+  const b2bTetrisPerfectClear = b2bBonusApplied && lastLockResult.spin === "NONE" && cleared === 4;
+  const perfectClearScore = lastPerfectClear
+    ? calculatePerfectClearScore(cleared, level, b2bTetrisPerfectClear)
+    : 0;
   comboCount = cleared > 0 ? comboCount + 1 : -1;
   const comboScore = comboCount > 0 ? 50 * comboCount * level : 0;
-  addScore(clearScore + comboScore);
+  addScore(clearScore + perfectClearScore + comboScore);
   // 最初の対象消去は開始だけ。0ラインは既存の連続状態を維持する。
   if (cleared > 0) backToBackActive = difficult;
   totalLines += cleared;
@@ -465,6 +490,7 @@ function restart() {
   comboCount = -1;
   backToBackActive = false;
   lastLockResult = null;
+  lastPerfectClear = false;
   clearHeldKeys();
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
   score = 0;
