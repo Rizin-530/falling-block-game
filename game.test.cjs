@@ -2530,3 +2530,97 @@ createGame(blockedStorage)(`
   restart(); assert.equal(settings.dasMs, 150);
 `);
 console.log("PASS: Settings defaults/storage validation, live DAS/ARR/drop timing, SFX/volume/effects, Pause restoration, lifecycle and high-score isolation.");
+
+const softDropGravityTests = createGame();
+softDropGravityTests(`
+  const marathonGravity = getGravityInterval;
+  function prepareDrop(gravityMs, softMs = 40) {
+    restart();
+    getGravityInterval = () => gravityMs;
+    settings.softDropMs = softMs;
+    board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    piece = { shape:[[1]], rotation:0, x:4, y:10, color:1 };
+    score = 0; scoreElement.textContent = "0"; dropElapsed = 0; lockElapsed = 0; lastTime = null;
+  }
+
+  // Soft Dropが速い場合だけrepeatが担当し、成功した各cellへ1点を付ける。
+  prepareDrop(1000, 40); press("ArrowDown", 0);
+  assert.equal(piece.y, 11); assert.equal(score, 1); assert.equal(softDropUsesRepeat(), true);
+  advanceTime(200); assert.equal(piece.y, 16); assert.equal(score, 6);
+  release("ArrowDown", 200);
+
+  // Gravityが速い場合はGravityだけが担当し、保持中の自然落下へ加点しない。
+  prepareDrop(18, 40); press("ArrowDown", 0);
+  assert.equal(piece.y, 11); assert.equal(score, 1); assert.equal(softDropUsesRepeat(), false);
+  advanceTime(90); assert.equal(piece.y, 16); assert.equal(score, 1);
+  release("ArrowDown", 90);
+
+  // 同速ではGravityを選び、二つの下降を加算しない。
+  prepareDrop(40, 40); press("ArrowDown", 0);
+  advanceTime(120); assert.equal(piece.y, 14); assert.equal(score, 1); assert.equal(softDropUsesRepeat(), false);
+  release("ArrowDown", 120);
+
+  // 設定値20/40/100msをLevel番号でなく実intervalと比較する。
+  prepareDrop(64, 20); heldKeys.ArrowDown = true; assert.equal(softDropUsesRepeat(), true);
+  settings.softDropMs = 40; assert.equal(softDropUsesRepeat(), true);
+  settings.softDropMs = 100; assert.equal(softDropUsesRepeat(), false); clearHeldKeys();
+
+  // 高Gravityでは↓保持が通常Gravityより遅くならず、初回1点以外は加点しない。
+  for (const testLevel of [13, 15]) {
+    getGravityInterval = marathonGravity; restart(); level = testLevel; totalLines = (testLevel - 1) * 10;
+    board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    piece = { shape:[[1]], rotation:0, x:4, y:5, color:1 }; score = 0; lastTime = null; dropElapsed = 0;
+    const interval = getGravityInterval();
+    press("ArrowDown", 0); const afterImmediate = piece.y;
+    advanceTime(interval * 5 + 0.001);
+    assert.equal(piece.y, afterImmediate + 5); assert.equal(score, 1);
+    release("ArrowDown", interval * 5 + 0.001);
+  }
+
+  // 低FPSでもSoft Drop側は停止せず、Gravity側は既存の複数stepを使う。
+  prepareDrop(1000, 40); press("ArrowDown", 0); advanceTime(300); const lowFpsSoftY = piece.y;
+  advanceTime(600); assert.ok(piece.y > lowFpsSoftY); assert.equal(score, piece.y - 10); release("ArrowDown", 600);
+  prepareDrop(18, 40); press("ArrowDown", 0); advanceTime(300);
+  assert.equal(score, 1); assert.ok(piece.y > 11); assert.ok(piece.y < TOTAL_ROWS); release("ArrowDown", 300);
+
+  // 大きなdtでも床を通過せず、接地前の余りをLock Delayへ加えない。
+  prepareDrop(18, 40); piece.y = TOTAL_ROWS - 3; press("ArrowDown", 0);
+  advanceTime(1000); assert.equal(piece.y, TOTAL_ROWS - 1); assert.equal(lockElapsed, 0); assert.equal(score, 1);
+
+  // 同じadvanceTime内で固定・Level Upしても、旧pieceの期限を新pieceへ使わない。
+  getGravityInterval = marathonGravity; restart(); settings.softDropMs = 40;
+  let transitionLevel = 1;
+  while (!(getGravityInterval(transitionLevel) > settings.softDropMs
+    && getGravityInterval(transitionLevel + 1) <= settings.softDropMs)) transitionLevel++;
+  level = transitionLevel; totalLines = transitionLevel * 10 - 1;
+  board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  board[TOTAL_ROWS - 1].fill(7, 0, COLS - 1); board[0][0] = 7;
+  piece = { shape:[[1]], rotation:0, x:COLS-1, y:TOTAL_ROWS-1, color:1 };
+  heldKeys.ArrowDown = true; nextSoftDropTime = 40; softDropScheduledPiece = piece;
+  lastTime = 0; lockElapsed = 460; score = 0;
+  const oldLevelPiece = piece; advanceTime(40);
+  assert.notEqual(piece, oldLevelPiece); assert.equal(level, transitionLevel + 1);
+  assert.equal(piece.y, SPAWN_Y); assert.equal(score, 100 * transitionLevel);
+  assert.equal(nextSoftDropTime, Infinity); assert.equal(softDropScheduledPiece, null);
+  clearHeldKeys();
+
+  // Levelが同じでも、新piece用repeatはSpawn時刻から新しく始める。
+  prepareDrop(1000, 40); piece.y = TOTAL_ROWS - 1; lockElapsed = 460;
+  heldKeys.ArrowDown = true; nextSoftDropTime = 40; softDropScheduledPiece = piece; lastTime = 0;
+  const oldSameLevelPiece = piece; advanceTime(40);
+  assert.notEqual(piece, oldSameLevelPiece); assert.equal(piece.y, SPAWN_Y); assert.equal(score, 0);
+  assert.equal(nextSoftDropTime, 80); assert.equal(softDropScheduledPiece, piece);
+  advanceTime(79); assert.equal(piece.y, SPAWN_Y);
+  advanceTime(80); assert.equal(piece.y, SPAWN_Y + 1); assert.equal(score, 1); clearHeldKeys();
+
+  // HOLD / Hard Dropでpieceが変わった場合も旧期限を同じ時刻で使わない。
+  prepareDrop(1000, 40); heldKeys.ArrowDown = true; nextSoftDropTime = 40; softDropScheduledPiece = piece; lastTime = 0;
+  const beforeHold = piece; hold(); assert.notEqual(piece, beforeHold); advanceTime(0);
+  assert.equal(piece.y, SPAWN_Y); assert.equal(nextSoftDropTime, 40); clearHeldKeys();
+  prepareDrop(1000, 40); heldKeys.ArrowDown = true; nextSoftDropTime = 40; softDropScheduledPiece = piece; lastTime = 0;
+  const beforeHardDrop = piece; hardDrop(); assert.notEqual(piece, beforeHardDrop); const spawnedY = piece.y; advanceTime(0);
+  assert.equal(piece.y, spawnedY); assert.equal(nextSoftDropTime, 40); clearHeldKeys();
+
+  getGravityInterval = marathonGravity;
+`);
+console.log("PASS: Soft Drop selects the faster interval, rejects stale piece deadlines, preserves scoring, high-level gravity, low-FPS progress and lock timing.");

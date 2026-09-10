@@ -62,12 +62,14 @@ const heldKeys = { ArrowLeft: false, ArrowRight: false, ArrowDown: false };
 let activeDirection = null;
 let nextHorizontalTime = Infinity;
 let nextSoftDropTime = Infinity;
+let softDropScheduledPiece = null;
 
 function clearHeldKeys() {
   if (heldKeys.ArrowDown) dropElapsed = 0;
   for (const code of Object.keys(heldKeys)) heldKeys[code] = false;
   activeDirection = null;
   nextHorizontalTime = nextSoftDropTime = Infinity;
+  softDropScheduledPiece = null;
 }
 const SHAPES = [
   [[1, 1, 1, 1]],                 // I
@@ -440,6 +442,10 @@ function getGravityInterval(currentLevel = level) {
   return Math.pow(0.8 - ((gravityLevel - 1) * 0.007), gravityLevel - 1) * 1000;
 }
 
+function softDropUsesRepeat() {
+  return heldKeys.ArrowDown && settings.softDropMs < getGravityInterval();
+}
+
 function togglePause(time = performance.now()) {
   if (gameOver || marathonComplete) return;
   advanceTime(time);
@@ -755,7 +761,10 @@ document.addEventListener("keydown", event => {
   if (gameOver || marathonComplete) return;
   if (event.code in heldKeys) {
     heldKeys[event.code] = true;
-    if (event.code === "ArrowDown") nextSoftDropTime = lastTime + settings.softDropMs;
+    if (event.code === "ArrowDown") {
+      nextSoftDropTime = softDropUsesRepeat() ? lastTime + settings.softDropMs : Infinity;
+      softDropScheduledPiece = nextSoftDropTime < Infinity ? piece : null;
+    }
     else {
       activeDirection = event.code;
       nextHorizontalTime = lastTime + settings.dasMs;
@@ -799,6 +808,7 @@ document.addEventListener("keyup", event => {
   heldKeys[event.code] = false;
   if (event.code === "ArrowDown") {
     nextSoftDropTime = Infinity;
+    softDropScheduledPiece = null;
     dropElapsed = 0;
   } else if (activeDirection === event.code) {
     const other = event.code === "ArrowLeft" ? "ArrowRight" : "ArrowLeft";
@@ -816,16 +826,31 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("blur", () => { clearHeldKeys(); lastTime = null; });
 
 function advanceTime(time) {
+  if (heldKeys.ArrowDown && !softDropUsesRepeat()) {
+    nextSoftDropTime = Infinity;
+    softDropScheduledPiece = null;
+  } else if (softDropUsesRepeat() && softDropScheduledPiece !== piece) {
+    nextSoftDropTime = (lastTime ?? time) + settings.softDropMs;
+    softDropScheduledPiece = piece;
+  }
   if (lastTime !== null && time - lastTime > MAX_INPUT_CATCHUP) {
     // 古い繰り返しは現在時刻の1回にまとめ、低更新頻度でも入力を進める。
     if (activeDirection && nextHorizontalTime <= time) nextHorizontalTime = time;
-    if (heldKeys.ArrowDown && nextSoftDropTime <= time) nextSoftDropTime = time;
+    if (softDropUsesRepeat() && nextSoftDropTime <= time) nextSoftDropTime = time;
   }
   while (!paused && !gameOver && !marathonComplete && !document.hidden) {
     const due = Math.min(nextHorizontalTime, nextSoftDropTime);
     if (due > time) break;
+    const pieceBeforeSimulation = piece;
     advanceSimulation(due);
     if (gameOver || marathonComplete) break;
+    if (piece !== pieceBeforeSimulation) {
+      nextSoftDropTime = softDropUsesRepeat() ? due + settings.softDropMs : Infinity;
+      softDropScheduledPiece = nextSoftDropTime < Infinity ? piece : null;
+    } else if (nextSoftDropTime === due && !softDropUsesRepeat()) {
+      nextSoftDropTime = Infinity;
+      softDropScheduledPiece = null;
+    }
     if (nextHorizontalTime === due) {
       move(activeDirection === "ArrowLeft" ? -1 : 1, 0);
       nextHorizontalTime += settings.arrMs;
@@ -857,7 +882,7 @@ function advanceSimulation(time) {
         }
         break;
       }
-      if (heldKeys.ArrowDown) break;
+      if (softDropUsesRepeat()) break;
       const gravityInterval = getGravityInterval();
       const elapsed = Math.min(remaining, gravityInterval - dropElapsed);
       dropElapsed += elapsed;
