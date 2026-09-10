@@ -8,6 +8,9 @@ function createGame(storage = {}) {
   const elements = {};
   const listeners = {};
   const drawCalls = [];
+  const displayTimers = new Map();
+  let displayTime = 0;
+  let timerId = 0;
   const context = new Proxy({}, {
     get(target, name) {
       if (name in target) return target[name];
@@ -42,6 +45,20 @@ function createGame(storage = {}) {
       setItem(key, value) { storage[key] = value; },
     },
     requestAnimationFrame() {},
+    setTimeout(callback, delay) {
+      displayTimers.set(++timerId, { callback, time: displayTime + delay });
+      return timerId;
+    },
+    clearTimeout(id) { displayTimers.delete(id); },
+    advanceDisplayTime(elapsed) {
+      displayTime += elapsed;
+      for (const [id, timer] of displayTimers) {
+        if (timer.time <= displayTime) {
+          displayTimers.delete(id);
+          timer.callback();
+        }
+      }
+    },
     performance: { now: () => vm.runInContext("lastTime ?? 0", sandbox) },
     key(code, repeat = false, modifiers = {}) {
       listeners.keydown({ code, repeat, timeStamp: vm.runInContext("lastTime ?? 0", sandbox), preventDefault() {}, ...modifiers });
@@ -1808,3 +1825,59 @@ createGame(failedCombo)(b2bFixtures + `
   restart(); assert.equal(highScore,250); assert.equal(comboCount,-1);
 `);
 console.log("PASS: Combo progression, ten clears, zero/spin-zero breaks, mixed clears, independent B2B, pre-clear level, unscaled drops, lifecycle and storage.");
+
+const uiTests = createGame();
+uiTests(b2bFixtures + `
+  function checkUI() {
+    assert.equal(Number(linesElement.textContent),totalLines);
+    assert.equal(b2bElement.textContent,backToBackActive ? "B2B ON" : "B2B OFF");
+    assert.equal(comboElement.textContent,!gameOver && comboCount>0 ? "COMBO "+comboCount : "");
+  }
+  restart(); checkUI(); assert.equal(Number(linesElement.textContent),0);
+  for(const [spin,maximum] of [["NONE",4],["T_SPIN",3],["T_SPIN_MINI",2]]) {
+    for(let lines=0;lines<=maximum;lines++) {
+      restart(); finishB2BClear(spin,lines); checkUI();
+      assert.equal(Number(linesElement.textContent),lines);
+      const expected=spin==="NONE" ? "" : (spin==="T_SPIN" ? "T-SPIN" : "T-SPIN MINI")+[""," SINGLE"," DOUBLE"," TRIPLE"][lines];
+      assert.equal(clearEventElement.textContent,expected);
+    }
+  }
+  restart();
+  for(let i=0;i<3;i++) { finishB2BClear("NONE",1); checkUI(); }
+  assert.equal(comboElement.textContent,"COMBO 2");
+  assert.equal(Number(linesElement.textContent),3);
+  finishB2BClear("NONE",0); checkUI(); assert.equal(comboElement.textContent,"");
+  restart(); finishB2BClear("NONE",4); checkUI();
+  assert.equal(score,800); assert.equal(b2bElement.textContent,"B2B ON");
+  finishB2BClear("NONE",1); checkUI();
+  assert.equal(b2bElement.textContent,"B2B OFF"); assert.equal(comboElement.textContent,"COMBO 1");
+  restart(); finishB2BClear("NONE",4); finishB2BClear("NONE",0); checkUI();
+  assert.equal(b2bElement.textContent,"B2B ON"); assert.equal(comboElement.textContent,"");
+  finishB2BClear("NONE",4); checkUI(); assert.equal(b2bElement.textContent,"B2B ON");
+  finishB2BClear("NONE",4); checkUI(); assert.equal(comboElement.textContent,"COMBO 1");
+  finishB2BClear("T_SPIN",0); checkUI(); assert.equal(comboElement.textContent,"");
+
+  // 古い通知の期限が新しい通知を消さない。表示時計はゲーム時計と独立。
+  restart(); finishB2BClear("T_SPIN",1);
+  advanceDisplayTime(600); finishB2BClear("T_SPIN_MINI",1);
+  advanceDisplayTime(600); assert.equal(clearEventElement.textContent,"T-SPIN MINI SINGLE");
+  advanceDisplayTime(599); assert.notEqual(clearEventElement.textContent,"");
+  const before=JSON.stringify({score,totalLines,level,highScore,lockElapsed,dropElapsed,lastTime,backToBackActive,comboCount});
+  advanceDisplayTime(1); assert.equal(clearEventElement.textContent,"");
+  assert.equal(JSON.stringify({score,totalLines,level,highScore,lockElapsed,dropElapsed,lastTime,backToBackActive,comboCount}),before);
+  finishB2BClear("T_SPIN",2); finishB2BClear("NONE",1);
+  assert.equal(clearEventElement.textContent,"");
+  finishB2BClear("T_SPIN",1); togglePause();
+  advanceDisplayTime(1200); assert.equal(clearEventElement.textContent,""); assert.ok(paused);
+  togglePause(); checkUI();
+  finishB2BClear("T_SPIN",1); restart(); checkUI();
+  assert.equal(Number(linesElement.textContent),0); assert.equal(b2bElement.textContent,"B2B OFF");
+  assert.equal(comboElement.textContent,""); assert.equal(clearEventElement.textContent,"");
+  advanceDisplayTime(1200); assert.equal(clearEventElement.textContent,"");
+  finishB2BClear("T_SPIN",1); finishB2BClear("T_SPIN",1);
+  const finalScore=score, finalLines=totalLines;
+  endGame(); checkUI(); assert.equal(clearEventElement.textContent,""); assert.equal(comboElement.textContent,"");
+  assert.equal(score,finalScore); assert.equal(totalLines,finalLines);
+  advanceDisplayTime(1200); assert.equal(clearEventElement.textContent,"");
+`);
+console.log("PASS: LINES, independent B2B/Combo display, full/mini feedback, replacement/expiry, pause, restart and game over without score/timer changes.");

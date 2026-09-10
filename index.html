@@ -36,6 +36,7 @@
       <section class="play-area" aria-label="ゲーム盤面">
         <canvas id="board" width="300" height="600" aria-label="10列20行のゲーム盤"></canvas>
         <p id="status" role="status">プレイ中</p>
+        <p id="clear-event" role="status" aria-atomic="true"></p>
       </section>
       <aside class="right-panel" aria-label="次のブロックと成績">
         <section class="panel preview-panel">
@@ -44,9 +45,11 @@
           <p class="hint">上から出現順</p>
         </section>
         <section class="panel stats" aria-label="成績">
-          <div class="stat"><h2>スコア</h2><strong id="score">0</strong></div>
-          <div class="stat"><h2>ハイスコア</h2><strong id="high-score">0</strong></div>
+          <div class="stat stat-wide"><h2>スコア</h2><strong id="score">0</strong></div>
+          <div class="stat stat-wide stat-high"><h2>ハイスコア</h2><strong id="high-score">0</strong></div>
           <div class="stat"><h2>レベル</h2><strong id="level">1</strong></div>
+          <div class="stat"><h2>LINES</h2><strong id="lines">0</strong></div>
+          <div class="chain-status"><span id="b2b" title="B2Bチェーンの現在の状態">B2B OFF</span><span id="combo"></span></div>
           <p class="hint">10ライン消去でレベルアップ</p>
         </section>
         <div class="actions">

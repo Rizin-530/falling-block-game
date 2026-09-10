@@ -43,10 +43,16 @@ canvas { display: block; }
   background: #08090b;
   box-shadow: 0 8px 32px #00000040;
 }
-#status { min-height: 44px; padding-top: 12px; text-align: center; color: #c0c4cd; font-size: 12px; line-height: 1.7; }
-.stats { display: grid; gap: 18px; }
-.stat + .stat { padding-top: 16px; border-top: 1px solid #292b30; }
+#status { min-height: 26px; padding-top: 6px; text-align: center; color: #c0c4cd; font-size: 12px; line-height: 1.7; }
+#clear-event { min-height: 18px; text-align: center; color: #d5b3f2; font-size: 11px; font-weight: 600; line-height: 18px; }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.stat-wide, .stats > .hint, .chain-status { grid-column: 1 / -1; }
+.stat + .stat { padding-top: 8px; border-top: 1px solid #292b30; }
 .stat strong { display: block; margin-top: 6px; font-size: 25px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.stat-high { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.stat-high h2 { flex-shrink: 0; }
+.stat-high #high-score { margin-top: 0; font-size: 18px; }
+.chain-status { display: flex; flex-wrap: wrap; gap: 4px 12px; min-height: 18px; color: #c0c4cd; font-size: 11px; line-height: 18px; font-variant-numeric: tabular-nums; }
 #score { font-size: 32px; }
 .controls dl { margin-top: 16px; display: grid; gap: 12px; }
 .controls dl > div { display: flex; justify-content: space-between; align-items: center; gap: 6px; }

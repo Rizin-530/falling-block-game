@@ -61,6 +61,12 @@ const scoreElement = document.getElementById("score");
 const statusElement = document.getElementById("status");
 const levelElement = document.getElementById("level");
 const highScoreElement = document.getElementById("high-score");
+const linesElement = document.getElementById("lines");
+const b2bElement = document.getElementById("b2b");
+const comboElement = document.getElementById("combo");
+const clearEventElement = document.getElementById("clear-event");
+const CLEAR_EVENT_DURATION = 1200;
+let clearEventTimer = null;
 const pauseButton = document.getElementById("pause");
 const HIGH_SCORE_KEY = "falling-block-high-score";
 let highScore = 0;
@@ -93,6 +99,28 @@ let lastLockResult = null;
 let backToBackActive = false;
 // -1: 継続なし、0: 最初の消去、1以上: Comboボーナス対象。
 let comboCount = -1;
+
+function updateProgressUI() {
+  linesElement.textContent = totalLines;
+  b2bElement.textContent = backToBackActive ? "B2B ON" : "B2B OFF";
+  comboElement.textContent = !gameOver && comboCount > 0 ? `COMBO ${comboCount}` : "";
+}
+
+function clearSpinFeedback() {
+  clearTimeout(clearEventTimer);
+  clearEventTimer = null;
+  clearEventElement.textContent = "";
+}
+
+function showSpinFeedback() {
+  clearSpinFeedback();
+  if (gameOver || lastLockResult.spin === "NONE") return;
+  const name = lastLockResult.spin === "T_SPIN_MINI" ? "T-SPIN MINI" : "T-SPIN";
+  const suffix = ["", " SINGLE", " DOUBLE", " TRIPLE"][lastLockResult.lines];
+  clearEventElement.textContent = name + suffix;
+  // 表示だけの実時間タイマー。Pause中も消え、ゲーム進行の時計には触れない。
+  clearEventTimer = setTimeout(clearSpinFeedback, CLEAR_EVENT_DURATION);
+}
 
 // 7種類を1回ずつ使う順番をシャッフルする。
 function nextType() {
@@ -128,6 +156,8 @@ function spawnPiece(type = nextQueue[0]) {
 function endGame() {
   lastRotationKick = null;
   gameOver = true;
+  clearSpinFeedback();
+  updateProgressUI();
   clearHeldKeys();
   statusElement.textContent = "ゲームオーバー — R またはボタンで再開";
   pauseButton.disabled = true;
@@ -333,6 +363,8 @@ function lockPiece() {
   dropElapsed = 0;
   holdUsed = false;
   advancePiece();
+  updateProgressUI();
+  showSpinFeedback();
 }
 
 function stepDown(softDrop = false) {
@@ -390,6 +422,7 @@ function draw() {
 }
 
 function restart() {
+  clearSpinFeedback();
   comboCount = -1;
   backToBackActive = false;
   lastLockResult = null;
@@ -412,6 +445,7 @@ function restart() {
   scoreElement.textContent = "0";
   statusElement.textContent = "プレイ中";
   advancePiece();
+  updateProgressUI();
   draw();
 }
 
