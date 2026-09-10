@@ -1603,11 +1603,14 @@ const b2bFixtures = `
   }
   function finishB2BClear(spin,lines) {
     prepareB2BClear(spin,lines);
-    const previous=score;
+    const previous=score, previousLevel=level;
+    const expectedCombo=lines>0 ? comboCount+1 : -1;
     lockPiece();
+    assert.equal(comboCount,expectedCombo);
     assert.deepEqual(lastLockResult,{spin,lines});
     assert.equal(Number(scoreElement.textContent),score);
-    return score-previous;
+    // B2B固有の期待値を維持し、独立したCombo点を除いた増分を返す。
+    return score-previous-Math.max(expectedCombo,0)*50*previousLevel;
   }
 `;
 const b2bStorage = {};
@@ -1616,7 +1619,7 @@ b2bTests(b2bFixtures);
 b2bTests(`
   assert.equal(backToBackActive,false);
   assert.equal(finishB2BClear("NONE",4),800); assert.equal(backToBackActive,true);
-  assert.equal(finishB2BClear("NONE",4),1200); assert.equal(score,2000);
+  assert.equal(finishB2BClear("NONE",4),1200); assert.equal(score,2050);
   restart(); finishB2BClear("NONE",4);
   for(let i=0;i<2;i++) {
     assert.equal(finishB2BClear("NONE",0),0); assert.equal(backToBackActive,true);
@@ -1676,7 +1679,7 @@ b2bTests(`
   for(let i=0;i<10;i++) stepDown(true);
   assert.equal(score-beforeSoft,10); assert.equal(piece.y,33);
   assert.equal(move(-1,0),true); rotate(); hardDrop();
-  assert.equal(score-beforeSoft,3610);
+  assert.equal(score-beforeSoft,3710);
   // HOLD/Spawn/Pauseではチェーンを失わない。
   hold(); assert.equal(backToBackActive,true);
   togglePause(0); togglePause(1000); assert.equal(backToBackActive,true);
@@ -1695,15 +1698,113 @@ b2bReload("assert.ok(highScore>0); assert.equal(backToBackActive,false)");
 const sharedB2B = {};
 const b2bA=createGame(sharedB2B), b2bB=createGame(sharedB2B);
 for(const game of [b2bA,b2bB]) game(b2bFixtures);
-b2bA('finishB2BClear("NONE",4); finishB2BClear("NONE",4); assert.equal(highScore,2000)');
-b2bB('finishB2BClear("NONE",4); assert.equal(highScore,2000)');
-assert.equal(sharedB2B["falling-block-high-score"],"2000");
+b2bA('finishB2BClear("NONE",4); finishB2BClear("NONE",4); assert.equal(highScore,2050)');
+b2bB('finishB2BClear("NONE",4); assert.equal(highScore,2050)');
+assert.equal(sharedB2B["falling-block-high-score"],"2050");
 const failedB2B = {};
 Object.defineProperty(failedB2B,"falling-block-high-score", {
   get() { return "0"; }, set() { throw new Error("Storage unavailable"); },
 });
 createGame(failedB2B)(b2bFixtures + `
   finishB2BClear("NONE",4); finishB2BClear("NONE",4);
-  assert.equal(score,2000); assert.equal(highScore,2000); assert.equal(gameOver,false);
+  assert.equal(score,2050); assert.equal(highScore,2050); assert.equal(gameOver,false);
 `);
 console.log("PASS: B2B start/continue/break, empty placements, mixed full/mini clears, levels, unscaled drops, lifecycle and high-score storage.");
+
+const comboStorage = {};
+const comboTests = createGame(comboStorage);
+comboTests(b2bFixtures + `
+  // Comboテストは控除せず、生の得点増分・状態を毎回確認する。
+  function checkCombo(spin,lines,points,count,b2b) {
+    prepareB2BClear(spin,lines);
+    const previous=score;
+    lockPiece();
+    assert.equal(score-previous,points);
+    assert.equal(comboCount,count); assert.equal(backToBackActive,b2b);
+    assert.deepEqual(lastLockResult,{spin,lines});
+    assert.equal(Number(scoreElement.textContent),score);
+  }
+  assert.equal(comboCount,-1);
+  checkCombo("NONE",1,100,0,false);
+  checkCombo("NONE",1,150,1,false); assert.equal(score,250);
+  checkCombo("NONE",1,200,2,false);
+  checkCombo("NONE",1,250,3,false);
+  restart();
+  for(const [lines,points,count,b2b] of [[1,100,0,false],[2,350,1,false],[3,600,2,false],[4,950,3,true]]) {
+    checkCombo("NONE",lines,points,count,b2b);
+  }
+  for(const spin of ["NONE","T_SPIN","T_SPIN_MINI"]) {
+    restart(); checkCombo("NONE",1,100,0,false); checkCombo("NONE",1,150,1,false);
+    checkCombo(spin,0,spin==="NONE" ? 0 : spin==="T_SPIN" ? 400 : 100,-1,false);
+    checkCombo("NONE",1,100,0,false);
+    restart(); checkCombo("NONE",4,800,0,true);
+    checkCombo(spin,0,spin==="NONE" ? 0 : spin==="T_SPIN" ? 400 : 100,-1,true);
+    checkCombo("NONE",4,1200,0,true);
+  }
+  restart();
+  checkCombo("NONE",1,100,0,false);
+  checkCombo("T_SPIN",2,1250,1,true);
+  checkCombo("NONE",4,1300,2,true);
+  checkCombo("T_SPIN",1,1350,3,true);
+  checkCombo("T_SPIN_MINI",1,500,4,true);
+  checkCombo("T_SPIN_MINI",2,850,5,true);
+  restart(); checkCombo("NONE",4,800,0,true); checkCombo("T_SPIN",2,1850,1,true);
+  restart(); checkCombo("NONE",4,800,0,true);
+  checkCombo("NONE",1,150,1,false); checkCombo("NONE",2,400,2,false);
+  restart(); level=2; totalLines=10;
+  checkCombo("NONE",4,1600,0,true); checkCombo("T_SPIN",2,3700,1,true);
+  restart(); level=3; totalLines=20;
+  checkCombo("NONE",1,300,0,false); checkCombo("NONE",1,450,1,false);
+  checkCombo("NONE",2,1200,2,false); checkCombo("NONE",1,750,3,false);
+  restart(); totalLines=8;
+  checkCombo("NONE",1,100,0,false); checkCombo("NONE",1,150,1,false);
+  assert.equal(totalLines,10); assert.equal(level,2);
+  // 10回の連続消去。各回の増分を独立した期待値で確認。
+  restart();
+  for(let i=0;i<10;i++) checkCombo("NONE",1,100+50*i,i,false);
+  assert.equal(score,3250); assert.equal(totalLines,10); assert.equal(level,2);
+  // 固定しない操作・HOLD・PauseではComboを変更しない。
+  spawnPiece(2); move(-1,0); rotate(); rotate(-1); stepDown(true); ghostY();
+  assert.equal(comboCount,9);
+  hold(); assert.equal(comboCount,9);
+  togglePause(0); togglePause(0); assert.equal(comboCount,9);
+  const record=highScore, previousScore=score;
+  endGame(); assert.equal(score,previousScore); assert.equal(highScore,record);
+  restart(); assert.equal(comboCount,-1); assert.equal(highScore,record);
+  checkCombo("NONE",1,100,0,false);
+  restart(); assert.equal(comboCount,-1); checkCombo("NONE",1,100,0,false);
+  // Hard Drop点・Soft Drop点はLevel/B2B/Comboで増幅しない。
+  restart(); level=2; totalLines=10; checkCombo("NONE",1,200,0,false);
+  prepareB2BClear("NONE",2); piece.y-=10;
+  const beforeDrop=score; hardDrop();
+  assert.equal(score-beforeDrop,720); assert.equal(comboCount,1);
+  restart(); level=2; totalLines=10; checkCombo("NONE",4,1600,0,true);
+  prepareB2BClear("T_SPIN",2);
+  piece.x=5; piece.y=23; piece.rotation=0; piece.shape=ROTATIONS[2][0]; lastRotationKick=null;
+  const beforeSoft=score;
+  for(let i=0;i<10;i++) stepDown(true);
+  assert.equal(score-beforeSoft,10); assert.equal(comboCount,0);
+  move(-1,0); rotate(); assert.equal(lastRotationKick,4); hardDrop();
+  assert.equal(score-beforeSoft,3710); assert.equal(comboCount,1);
+  // Lock Outでは従来の早期終了を維持し、得点を追加しない。
+  prepareB2BClear("NONE",0); piece.y=10;
+  const beforeOut=score; lockPiece(); assert.equal(gameOver,true); assert.equal(score,beforeOut);
+  restart(); assert.equal(comboCount,-1);
+`);
+const comboAStorage = {};
+const comboA=createGame(comboAStorage), comboB=createGame(comboAStorage);
+for(const game of [comboA,comboB]) game(b2bFixtures);
+comboA('finishB2BClear("NONE",1); finishB2BClear("NONE",1); assert.equal(score,250); assert.equal(highScore,250)');
+comboB('finishB2BClear("NONE",1); assert.equal(highScore,250)');
+assert.equal(comboAStorage["falling-block-high-score"],"250");
+createGame(comboAStorage)('assert.equal(highScore,250); assert.equal(comboCount,-1)');
+const failedCombo = {};
+Object.defineProperty(failedCombo,"falling-block-high-score", {
+  get() { return "0"; }, set() { throw new Error("Storage unavailable"); },
+});
+createGame(failedCombo)(b2bFixtures + `
+  finishB2BClear("NONE",1); finishB2BClear("NONE",1);
+  assert.equal(score,250); assert.equal(highScore,250); assert.equal(gameOver,false);
+  restart(); assert.equal(highScore,250); assert.equal(comboCount,-1);
+`);
+console.log("PASS: Combo progression, ten clears, zero/spin-zero breaks, mixed clears, independent B2B, pre-clear level, unscaled drops, lifecycle and storage.");

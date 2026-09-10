@@ -91,6 +91,8 @@ let lastRotationKick = null;
 // 確定済みの結果は次のSpawnでも保持し、進行中ピースの回転資格とは分離する。
 let lastLockResult = null;
 let backToBackActive = false;
+// -1: 継続なし、0: 最初の消去、1以上: Comboボーナス対象。
+let comboCount = -1;
 
 // 7種類を1回ずつ使う順番をシャッフルする。
 function nextType() {
@@ -320,7 +322,9 @@ function lockPiece() {
   let clearScore = calculateClearScore(lastLockResult.spin, cleared, level);
   const difficult = isDifficultClear(lastLockResult.spin, cleared);
   if (backToBackActive && difficult) clearScore = clearScore * 3 / 2;
-  addScore(clearScore);
+  comboCount = cleared > 0 ? comboCount + 1 : -1;
+  const comboScore = comboCount > 0 ? 50 * comboCount * level : 0;
+  addScore(clearScore + comboScore);
   // 最初の対象消去は開始だけ。0ラインは既存の連続状態を維持する。
   if (cleared > 0) backToBackActive = difficult;
   totalLines += cleared;
@@ -386,6 +390,7 @@ function draw() {
 }
 
 function restart() {
+  comboCount = -1;
   backToBackActive = false;
   lastLockResult = null;
   clearHeldKeys();
