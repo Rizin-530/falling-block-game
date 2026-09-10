@@ -54,9 +54,11 @@ canvas { display: block; }
 .stat-high #high-score { margin-top: 0; font-size: 18px; }
 .chain-status { display: flex; flex-wrap: wrap; gap: 4px 12px; min-height: 18px; color: #c0c4cd; font-size: 11px; line-height: 18px; font-variant-numeric: tabular-nums; }
 #score { font-size: 32px; }
-.controls dl { margin-top: 16px; display: grid; gap: 12px; }
-.controls dl > div { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
-.controls dd { color: #b9bdc5; font-size: 11px; }
+.controls dl { margin-top: 16px; display: grid; gap: 10px; }
+.controls dl > div { display: grid; grid-template-columns: 68px minmax(0, 1fr); align-items: center; column-gap: 8px; min-height: 24px; }
+.controls dt { display: flex; align-items: center; gap: 4px; }
+.controls dd { color: #b9bdc5; font-size: 11px; text-align: left; white-space: nowrap; }
+.controls kbd { display: inline-flex; align-items: center; justify-content: center; height: 24px; vertical-align: middle; }
 kbd { display: inline-block; min-width: 22px; padding: 3px 5px; border: 1px solid #3b3e45; border-radius: 4px; background: #1c1e23; color: #e0e2e7; font: 11px system-ui, sans-serif; text-align: center; }
 .actions { display: grid; gap: 8px; }
 button { min-height: 42px; padding: 10px 12px; border: 1px solid #3b3e45; border-radius: 6px; background: #24262c; color: #ededee; font: 12px system-ui, sans-serif; cursor: pointer; }
@@ -75,7 +77,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   .left-panel > .preview-panel { grid-column: 2; grid-row: 1; }
   .controls { grid-column: 1 / -1; grid-row: 3; }
   .panel { padding: 12px 10px; }
-  .controls dl > div { flex-wrap: wrap; }
 }
 @media (max-width: 420px) {
   h1 { font-size: 18px; }
