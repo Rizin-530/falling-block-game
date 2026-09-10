@@ -66,6 +66,13 @@ const b2bElement = document.getElementById("b2b");
 const comboElement = document.getElementById("combo");
 const clearEventElement = document.getElementById("clear-event");
 const debugLevelSelect = document.getElementById("debug-level");
+const resultsElement = document.getElementById("results");
+const resultsTitleElement = document.getElementById("results-title");
+const resultsDebugElement = document.getElementById("results-debug");
+const resultsScoreElement = document.getElementById("results-score");
+const resultsLinesElement = document.getElementById("results-lines");
+const resultsLevelElement = document.getElementById("results-level");
+const resultsHighScoreElement = document.getElementById("results-high-score");
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
 const pauseButton = document.getElementById("pause");
@@ -118,12 +125,26 @@ function clearSpinFeedback() {
 
 function showSpinFeedback() {
   clearSpinFeedback();
-  if (gameOver || lastLockResult.spin === "NONE") return;
+  if (gameOver || marathonComplete || lastLockResult.spin === "NONE") return;
   const name = lastLockResult.spin === "T_SPIN_MINI" ? "T-SPIN MINI" : "T-SPIN";
   const suffix = ["", " SINGLE", " DOUBLE", " TRIPLE"][lastLockResult.lines];
   clearEventElement.textContent = name + suffix;
   // 表示だけの実時間タイマー。Pause中も消え、ゲーム進行の時計には触れない。
   clearEventTimer = setTimeout(clearSpinFeedback, CLEAR_EVENT_DURATION);
+}
+
+function showResults(title) {
+  resultsTitleElement.textContent = title;
+  resultsDebugElement.textContent = selectedStartLevel === 1 ? "" : "DEBUG RUN";
+  resultsScoreElement.textContent = score;
+  resultsLinesElement.textContent = totalLines;
+  resultsLevelElement.textContent = level;
+  resultsHighScoreElement.textContent = highScore;
+  resultsElement.hidden = false;
+}
+
+function hideResults() {
+  resultsElement.hidden = true;
 }
 
 // 7種類を1回ずつ使う順番をシャッフルする。
@@ -166,13 +187,16 @@ function endGame() {
   clearHeldKeys();
   statusElement.textContent = "ゲームオーバー — R またはボタンで再開";
   pauseButton.disabled = true;
+  showResults("GAME OVER");
 }
 
 function completeMarathon() {
   marathonComplete = true;
+  clearSpinFeedback();
   clearHeldKeys();
   statusElement.textContent = "MARATHON COMPLETE — R またはボタンで再開";
   pauseButton.disabled = true;
+  showResults("MARATHON COMPLETE");
 }
 
 function advancePiece() {
@@ -437,6 +461,7 @@ function draw() {
 
 function restart() {
   clearSpinFeedback();
+  hideResults();
   comboCount = -1;
   backToBackActive = false;
   lastLockResult = null;
@@ -502,6 +527,7 @@ document.addEventListener("keydown", event => {
   draw();
 });
 document.getElementById("restart").addEventListener("click", restart);
+document.getElementById("play-again").addEventListener("click", restart);
 debugLevelSelect.addEventListener("change", () => {
   selectedStartLevel = Number(debugLevelSelect.value);
   restart();

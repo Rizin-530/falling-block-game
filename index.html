@@ -45,7 +45,22 @@
         </section>
       </aside>
       <section class="play-area" aria-label="ゲーム盤面">
-        <canvas id="board" width="300" height="600" aria-label="10列20行のゲーム盤"></canvas>
+        <div class="board-stage">
+          <canvas id="board" width="300" height="600" aria-label="10列20行のゲーム盤"></canvas>
+          <section id="results" class="results-overlay" aria-live="polite" aria-labelledby="results-title" hidden>
+            <div class="results-card">
+              <p id="results-debug" class="results-debug"></p>
+              <h2 id="results-title">GAME OVER</h2>
+              <dl class="results-stats">
+                <div><dt>SCORE</dt><dd id="results-score">0</dd></div>
+                <div><dt>LINES</dt><dd id="results-lines">0</dd></div>
+                <div><dt>LEVEL</dt><dd id="results-level">1</dd></div>
+                <div><dt>HIGH SCORE</dt><dd id="results-high-score">0</dd></div>
+              </dl>
+              <button id="play-again" type="button">PLAY AGAIN <kbd>R</kbd></button>
+            </div>
+          </section>
+        </div>
         <p id="status" role="status">プレイ中</p>
         <p id="clear-event" role="status" aria-atomic="true"></p>
       </section>
