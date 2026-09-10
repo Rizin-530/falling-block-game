@@ -84,6 +84,7 @@ canvas { display: block; }
 .debug-level { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #292b30; color: #969ba5; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; }
 .debug-level select { min-width: 58px; height: 28px; padding: 2px 6px; border: 1px solid #3b3e45; border-radius: 4px; background: #1c1e23; color: #e0e2e7; font: 11px system-ui, sans-serif; }
 .debug-level select:focus-visible { outline: 2px solid #8acfea; outline-offset: 2px; }
+.qa-open { width: 100%; min-height: 32px; margin-top: 8px; padding: 6px 10px; color: #b9bdc5; font-size: 10px; letter-spacing: 0.08em; }
 kbd { display: inline-block; min-width: 22px; padding: 3px 5px; border: 1px solid #3b3e45; border-radius: 4px; background: #1c1e23; color: #e0e2e7; font: 11px system-ui, sans-serif; text-align: center; }
 .actions { display: grid; gap: 8px; }
 button { min-height: 42px; padding: 10px 12px; border: 1px solid #3b3e45; border-radius: 6px; background: #24262c; color: #ededee; font: 12px system-ui, sans-serif; cursor: pointer; }
@@ -105,6 +106,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 .setting-toggle { margin-top: 16px; padding-top: 14px; border-top: 1px solid #292b30; }
 .setting-toggle input { width: 18px; height: 18px; accent-color: #8acfea; }
 .settings-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 20px; }
+.qa-note, .qa-message { color: #969ba5; font-size: 10px; line-height: 1.6; }
+.qa-actions { display: grid; gap: 8px; margin-top: 16px; }
+.qa-message { min-height: 16px; margin-top: 10px; color: #d5b3f2; }
+#qa-run { color: #d5b3f2; font-weight: 600; letter-spacing: 0.08em; }
 body.effects-off .board-stage::after, body.effects-off #clear-event.event-pop, body.effects-off #level.level-up, body.effects-off .results-overlay.results-enter { animation: none; }
 @keyframes board-flash { 0% { opacity: 0.18; } 100% { opacity: 0; } }
 @keyframes board-flash-strong { 0% { opacity: 0.28; } 100% { opacity: 0; } }

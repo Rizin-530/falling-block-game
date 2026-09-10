@@ -126,11 +126,23 @@ const softDropInput = document.getElementById("setting-soft-drop");
 const sfxInput = document.getElementById("setting-sfx");
 const volumeInput = document.getElementById("setting-volume");
 const effectsInput = document.getElementById("setting-effects");
+const qaRunElement = document.getElementById("qa-run");
+const qaOverlay = document.getElementById("qa-overlay");
+const qaButton = document.getElementById("open-qa");
+const qaCloseButton = document.getElementById("qa-close");
+const qaResetButton = document.getElementById("qa-reset");
+const qaMessageElement = document.getElementById("qa-message");
+const qaScenarioButtons = [
+  document.getElementById("qa-149"), document.getElementById("qa-clear"),
+  document.getElementById("qa-force-i"), document.getElementById("qa-top-out"),
+];
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
 let audioContext = null;
 let settingsOpen = false;
 let settingsWasPaused = false;
+let qaOpen = false;
+let qaWasPaused = false;
 const pauseButton = document.getElementById("pause");
 const HIGH_SCORE_KEY = "falling-block-high-score";
 let highScore = 0;
@@ -167,11 +179,13 @@ let backToBackActive = false;
 let comboCount = -1;
 // Level 1は通常ゲーム。高Level選択時だけHigh Scoreの対象外にする。
 let selectedStartLevel = 1;
+let isQaRun = false;
 
 function updateProgressUI() {
   linesElement.textContent = totalLines;
   b2bElement.textContent = backToBackActive ? "B2B ON" : "B2B OFF";
   comboElement.textContent = !gameOver && comboCount > 0 ? `COMBO ${comboCount}` : "";
+  qaRunElement.hidden = !isQaRun;
 }
 
 function clearSpinFeedback() {
@@ -332,6 +346,136 @@ function changeSetting(name, value) {
   saveSettings();
 }
 
+function qaFocusableElements() {
+  return [...qaScenarioButtons, qaResetButton, qaCloseButton].filter(element => !element.disabled && !element.hidden);
+}
+
+function keepQaFocus(event) {
+  if (event.code !== "Tab") return;
+  const focusable = qaFocusableElements();
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  } else if (!focusable.includes(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+}
+
+function openQa(time = performance.now()) {
+  if (qaOpen) return;
+  qaWasPaused = paused;
+  if (!gameOver && !marathonComplete && !paused) {
+    advanceTime(time);
+    if (!gameOver && !marathonComplete) paused = true;
+  }
+  clearHeldKeys();
+  lastTime = null;
+  qaOpen = true;
+  qaMessageElement.textContent = "";
+  gameUiElement.inert = true;
+  qaOverlay.hidden = false;
+  if (!gameOver && !marathonComplete) {
+    statusElement.textContent = "QA設定中";
+    pauseButton.textContent = "再開（P）";
+  }
+  qaCloseButton.focus?.();
+}
+
+function closeQa() {
+  if (!qaOpen) return;
+  qaOverlay.hidden = true;
+  gameUiElement.inert = false;
+  qaOpen = false;
+  clearHeldKeys();
+  lastTime = null;
+  if (!gameOver && !marathonComplete) {
+    paused = qaWasPaused;
+    statusElement.textContent = paused ? "一時停止中" : "プレイ中";
+    pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
+  }
+  qaWasPaused = false;
+  qaButton.focus?.();
+}
+
+function markQaRun() {
+  isQaRun = true;
+  updateProgressUI();
+}
+
+function resetQaPieceState() {
+  clearHeldKeys();
+  clearSpinFeedback();
+  clearEffects();
+  lastRotationKick = null;
+  lastLockResult = null;
+  lastPerfectClear = false;
+  dropElapsed = 0;
+  lockElapsed = 0;
+  lockResets = 0;
+  lastTime = null;
+}
+
+function loadQa149To150() {
+  markQaRun();
+  restart();
+  totalLines = MARATHON_TARGET_LINES - 1;
+  level = Math.floor(totalLines / 10) + 1;
+  levelElement.textContent = level;
+  board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  board[TOTAL_ROWS - 1].fill(7);
+  board[TOTAL_ROWS - 1].fill(0, 3, 7);
+  board[TOTAL_ROWS - 2][0] = 7;
+  spawnPiece(0);
+  updateProgressUI();
+  draw();
+  closeQa();
+}
+
+function clearQaBoard() {
+  markQaRun();
+  resetQaPieceState();
+  board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  updateProgressUI();
+  draw();
+  closeQa();
+}
+
+function forceQaI() {
+  markQaRun();
+  clearHeldKeys();
+  const shape = ROTATIONS[0][0];
+  const x = Math.floor((COLS - shape[0].length) / 2);
+  if (collides(shape, x, SPAWN_Y)) {
+    qaMessageElement.textContent = "I PIECEを出現できません。先にCLEAR BOARDを使用してください。";
+    return;
+  }
+  resetQaPieceState();
+  spawnPiece(0);
+  updateProgressUI();
+  draw();
+  closeQa();
+}
+
+function loadQaTopOut() {
+  markQaRun();
+  restart();
+  board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  spawnPiece(0);
+  piece.y = TOTAL_ROWS - 2;
+  for (let y = SPAWN_Y; y <= SPAWN_Y + 1; y++) board[y].fill(7, 3, 7);
+  resetQaPieceState();
+  updateProgressUI();
+  draw();
+  closeQa();
+}
+
 function showSpinFeedback() {
   clearSpinFeedback();
   if (gameOver || (marathonComplete && !lastPerfectClear)) return;
@@ -350,7 +494,7 @@ function showSpinFeedback() {
 
 function showResults(title) {
   resultsTitleElement.textContent = title;
-  resultsDebugElement.textContent = selectedStartLevel === 1 ? "" : "DEBUG RUN";
+  resultsDebugElement.textContent = [selectedStartLevel === 1 ? "" : "DEBUG RUN", isQaRun ? "QA RUN" : ""].filter(Boolean).join(" · ");
   resultsScoreElement.textContent = score;
   resultsLinesElement.textContent = totalLines;
   resultsLevelElement.textContent = level;
@@ -547,7 +691,7 @@ function rotate(direction = 1) {
 function addScore(points) {
   score += points;
   scoreElement.textContent = score;
-  if (selectedStartLevel === 1 && score > highScore) {
+  if (selectedStartLevel === 1 && !isQaRun && score > highScore) {
     highScore = score;
     try {
       // 他のタブの記録を、起動時に読んだ古い値で上書きしない。
@@ -742,6 +886,14 @@ document.addEventListener("keydown", event => {
     }
     return;
   }
+  if (qaOpen) {
+    keepQaFocus(event);
+    if (event.code === "Escape") {
+      event.preventDefault();
+      closeQa();
+    }
+    return;
+  }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyR", "KeyC", "KeyP", "KeyZ"].includes(event.code)) return;
   event.preventDefault();
@@ -797,9 +949,21 @@ softDropInput.addEventListener("input", () => changeSetting("softDropMs", Number
 sfxInput.addEventListener("change", () => changeSetting("sfxEnabled", sfxInput.checked));
 volumeInput.addEventListener("input", () => changeSetting("sfxVolume", Number(volumeInput.value)));
 effectsInput.addEventListener("change", () => changeSetting("effectsEnabled", effectsInput.checked));
+qaButton.addEventListener("click", event => openQa(event.timeStamp));
+qaCloseButton.addEventListener("click", closeQa);
+document.getElementById("qa-149").addEventListener("click", loadQa149To150);
+document.getElementById("qa-clear").addEventListener("click", clearQaBoard);
+document.getElementById("qa-force-i").addEventListener("click", forceQaI);
+document.getElementById("qa-top-out").addEventListener("click", loadQaTopOut);
+qaResetButton.addEventListener("click", () => {
+  isQaRun = false;
+  restart();
+  closeQa();
+});
 debugLevelSelect.addEventListener("change", () => {
   enableAudio();
   selectedStartLevel = Number(debugLevelSelect.value);
+  isQaRun = false;
   restart();
 });
 document.addEventListener("keyup", event => {

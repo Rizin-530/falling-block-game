@@ -42,6 +42,7 @@
               <option value="15">15</option>
             </select>
           </label>
+          <button id="open-qa" class="qa-open" type="button">QA ASSIST</button>
         </section>
       </aside>
       <section class="play-area" aria-label="ゲーム盤面">
@@ -75,7 +76,7 @@
           <div class="stat stat-wide stat-high"><h2>ハイスコア</h2><strong id="high-score">0</strong></div>
           <div class="stat"><h2>レベル</h2><strong id="level">1</strong></div>
           <div class="stat"><h2>LINES</h2><strong id="lines">0</strong></div>
-          <div class="chain-status"><span id="b2b" title="B2Bチェーンの現在の状態">B2B OFF</span><span id="combo"></span></div>
+          <div class="chain-status"><span id="b2b" title="B2Bチェーンの現在の状態">B2B OFF</span><span id="combo"></span><span id="qa-run" hidden>QA RUN</span></div>
           <p class="hint">10ライン消去でレベルアップ</p>
         </section>
         <div class="actions">
@@ -112,6 +113,23 @@
       <div class="settings-actions">
         <button id="reset-settings" type="button">RESET DEFAULTS</button>
         <button id="close-settings" type="button">CLOSE</button>
+      </div>
+    </div>
+  </section>
+  <section id="qa-overlay" class="settings-overlay" role="dialog" aria-modal="true" aria-labelledby="qa-title" hidden>
+    <div class="settings-panel qa-panel">
+      <h2 id="qa-title">QA ASSIST / TEST PANEL</h2>
+      <p class="qa-note">使用したゲームはHigh Score対象外になります。</p>
+      <div class="qa-actions">
+        <button id="qa-149" type="button">LOAD 149 → 150</button>
+        <button id="qa-clear" type="button">CLEAR BOARD</button>
+        <button id="qa-force-i" type="button">FORCE I</button>
+        <button id="qa-top-out" type="button">LOAD TOP OUT TEST</button>
+      </div>
+      <p id="qa-message" class="qa-message" role="status"></p>
+      <div class="settings-actions">
+        <button id="qa-reset" type="button">RESET QA RUN</button>
+        <button id="qa-close" type="button">CLOSE</button>
       </div>
     </div>
   </section>

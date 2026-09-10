@@ -2624,3 +2624,79 @@ softDropGravityTests(`
   getGravityInterval = marathonGravity;
 `);
 console.log("PASS: Soft Drop selects the faster interval, rejects stale piece deadlines, preserves scoring, high-level gravity, low-FPS progress and lock timing.");
+
+const qaStorage = { "falling-block-high-score": "500" };
+const qaTests = createGame(qaStorage);
+qaTests(`
+  // Panelは既存Pause・inert・focus循環を使い、背景入力を遮断する。
+  const qaStartX = piece.x; press("ArrowRight", 0); openQa(0);
+  assert.equal(qaOpen, true); assert.equal(paused, true); assert.equal(gameUiElement.inert, true);
+  assert.equal(activeDirection, null); assert.equal(nextSoftDropTime, Infinity); assert.equal(document.activeElement, qaCloseButton);
+  press("ArrowLeft", 10); press("Space", 10); assert.equal(piece.x, qaStartX + 1);
+  const pausedQaY = piece.y; const pausedQaLock = lockElapsed;
+  advanceTime(1000); assert.equal(piece.y, pausedQaY); assert.equal(lockElapsed, pausedQaLock);
+  key("Tab"); assert.equal(document.activeElement, qaScenarioButtons[0]);
+  key("Tab", false, { shiftKey:true }); assert.equal(document.activeElement, qaCloseButton);
+  closeQa(); assert.equal(paused, false); assert.equal(gameUiElement.inert, false); assert.equal(document.activeElement, qaButton);
+  advanceTime(5000); assert.equal(piece.y, pausedQaY); assert.equal(lockElapsed, pausedQaLock);
+
+  // 149 Lines fixtureは通常SingleからCompleteへ進み、Perfect Clearにはしない。
+  const qaSounds = []; playSound = type => qaSounds.push(type);
+  openQa(20); loadQa149To150();
+  assert.equal(isQaRun, true); assert.equal(score, 0); assert.equal(totalLines, 149);
+  assert.equal(level, Math.floor(149 / 10) + 1); assert.equal(gameOver, false); assert.equal(marathonComplete, false);
+  assert.equal(board.length, TOTAL_ROWS); assert.ok(board.every(row => row.length === COLS));
+  assert.deepEqual(board[TOTAL_ROWS-1].slice(3,7), [0,0,0,0]); assert.equal(board[TOTAL_ROWS-2][0], 7);
+  assert.equal(piece.color, 1); assert.equal(piece.rotation, 0); assert.equal(piece.x, 3); assert.equal(piece.y, SPAWN_Y);
+  assert.equal(qaRunElement.hidden, false); assert.deepEqual(qaSounds, []);
+  hardDrop(); assert.equal(totalLines, 150); assert.equal(marathonComplete, true); assert.equal(lastPerfectClear, false);
+  assert.equal(resultsElement.hidden, false); assert.equal(resultsDebugElement.textContent, "QA RUN");
+  assert.deepEqual(qaSounds, ["complete"]); assert.equal(highScore, 500); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "500");
+
+  // PLAY AGAIN / RestartはQA RUNを維持し、fixture自体は再ロードしない。
+  document.getElementById("play-again").click(); assert.equal(isQaRun, true); assert.equal(totalLines, 0); assert.equal(gameOver, false);
+  restart(); assert.equal(isQaRun, true); assert.equal(qaRunElement.hidden, false);
+
+  // CLEAR BOARDは固定盤面だけを空にし、Score/Lines/Queue/HOLD/active pieceを維持する。
+  board[0][0] = 7; board[TOTAL_ROWS-1][9] = 7; score = 321; totalLines = 12; level = 2; heldType = 4;
+  const clearPiece = piece; const clearQueue = JSON.stringify(nextQueue);
+  lockElapsed = 300; lockResets = 5; lastRotationKick = 2;
+  openQa(30); clearQaBoard();
+  assert.ok(board.every(row => row.length === COLS && row.every(cell => cell === 0)));
+  assert.equal(piece, clearPiece); assert.equal(score, 321); assert.equal(totalLines, 12); assert.equal(level, 2);
+  assert.equal(JSON.stringify(nextQueue), clearQueue); assert.equal(heldType, 4);
+  assert.equal(lockElapsed, 0); assert.equal(lockResets, 0); assert.equal(lastRotationKick, null);
+
+  // FORCE Iは既存定義・Spawnを使い、Queue/HOLD/Scoreを変えず古いrepeatを消す。
+  const forceQueue = JSON.stringify(nextQueue); const forceHold = heldType; const forceScore = score;
+  openQa(40); heldKeys.ArrowDown = true; nextSoftDropTime = 40; softDropScheduledPiece = piece;
+  forceQaI();
+  assert.equal(piece.color, 1); assert.equal(piece.shape, ROTATIONS[0][0]); assert.equal(piece.rotation, 0);
+  assert.equal(piece.x, 3); assert.equal(piece.y, SPAWN_Y); assert.equal(JSON.stringify(nextQueue), forceQueue);
+  assert.equal(heldType, forceHold); assert.equal(score, forceScore); assert.equal(nextSoftDropTime, Infinity); assert.equal(softDropScheduledPiece, null);
+
+  // Spawn位置が塞がれている場合は何も消さず、安全に失敗する。
+  const failedPiece = piece; board[SPAWN_Y + 1][3] = 6; const failedBoard = JSON.stringify(board);
+  openQa(50); forceQaI(); assert.equal(qaOpen, true); assert.equal(piece, failedPiece);
+  assert.equal(JSON.stringify(board), failedBoard); assert.ok(qaMessageElement.textContent.includes("CLEAR BOARD")); closeQa();
+
+  // Top Out fixtureは次の通常Spawn衝突によってGame Overへ進む。
+  qaSounds.length = 0; openQa(60); loadQaTopOut();
+  assert.equal(isQaRun, true); assert.equal(gameOver, false); assert.equal(piece.color, 1);
+  assert.equal(piece.y, TOTAL_ROWS - 2); assert.equal(board[SPAWN_Y][3], 7);
+  hardDrop(); assert.equal(gameOver, true); assert.equal(resultsElement.hidden, false);
+  assert.equal(resultsTitleElement.textContent, "GAME OVER"); assert.equal(resultsDebugElement.textContent, "QA RUN");
+  assert.deepEqual(qaSounds, ["game-over"]); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "500");
+  openQa(70); closeQa(); assert.equal(gameOver, true); assert.equal(resultsElement.hidden, false);
+
+  // RESET QA RUNで明示的に通常開始へ戻り、再びHigh Score対象になる。
+  openQa(80); qaResetButton.click(); assert.equal(isQaRun, false); assert.equal(qaRunElement.hidden, true);
+  assert.equal(selectedStartLevel, 1); addScore(600); assert.equal(highScore, 600); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "600");
+  openQa(90); clearQaBoard(); assert.equal(isQaRun, true);
+  debugLevelSelect.value = "1"; debugLevelSelect.change(); assert.equal(isQaRun, false); assert.equal(totalLines, 0);
+
+  // QA状態そのものをlocalStorageへ保存しない。
+  assert.equal(localStorage.getItem("isQaRun"), null);
+  assert.equal(localStorage.getItem("qa-run"), null);
+`);
+console.log("PASS: QA Assist fixtures, normal completion/top-out paths, board/I tools, high-score exclusion, modal safety and normal-run recovery.");
