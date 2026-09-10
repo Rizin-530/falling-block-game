@@ -2042,3 +2042,107 @@ debugLevelTests(`
   restart(); assert.equal(level, 1); assert.equal(totalLines, 0); assert.equal(highScore, 600);
 `);
 console.log("PASS: debug Level 1/5/10/13/15 selection, full restart state, gravity, progression, score multiplier and high-score isolation.");
+
+const marathonStorage = {};
+const marathonTests = createGame(marathonStorage);
+marathonTests(`
+  function prepareMarathonClear(startLines, cleared) {
+    restart();
+    totalLines = startLines;
+    level = Math.floor(totalLines / 10) + 1;
+    levelElement.textContent = level;
+    board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    for (let y = TOTAL_ROWS - cleared; y < TOTAL_ROWS; y++) {
+      board[y].fill(7);
+      board[y][4] = 0;
+    }
+    piece = { rotation: 1, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 1 };
+    lastRotationKick = null;
+  }
+
+  // 150ちょうどでも、複数ラインで飛び越しても、得点後に終了する。
+  prepareMarathonClear(149, 1);
+  let queueBefore = nextQueue.slice();
+  let bagBefore = bag.slice();
+  const pieceBefore = piece;
+  lockPiece();
+  assert.equal(totalLines, 150); assert.equal(level, 16); assert.equal(score, 1500);
+  assert.equal(marathonComplete, true); assert.equal(gameOver, false);
+  assert.equal(piece, pieceBefore); assert.deepEqual(nextQueue, queueBefore); assert.deepEqual(bag, bagBefore);
+  assert.match(statusElement.textContent, /MARATHON COMPLETE/); assert.equal(pauseButton.disabled, true);
+
+  prepareMarathonClear(148, 2); lockPiece();
+  assert.equal(totalLines, 150); assert.equal(score, 4500); assert.equal(marathonComplete, true);
+  prepareMarathonClear(148, 4); lockPiece();
+  assert.equal(totalLines, 152); assert.equal(score, 12000); assert.equal(marathonComplete, true);
+
+  // 最終T-SpinにもB2B・Combo・消去前Levelをすべて適用する。
+  prepareMarathonClear(149, 1);
+  detectTSpin = () => "T_SPIN";
+  backToBackActive = true; comboCount = 0; addScore(20);
+  queueBefore = nextQueue.slice();
+  lockPiece();
+  assert.equal(score, 20 + 800 * 15 * 3 / 2 + 50 * 15);
+  assert.equal(totalLines, 150); assert.equal(level, 16); assert.equal(marathonComplete, true);
+  assert.deepEqual(nextQueue, queueBefore);
+  assert.equal(lastLockResult.spin, "T_SPIN"); assert.equal(lastLockResult.lines, 1);
+  assert.equal(clearEventElement.textContent, "T-SPIN SINGLE");
+  assert.equal(Number(localStorage.getItem(HIGH_SCORE_KEY)), score);
+
+  // T-Spin 0と通常の0ライン固定は149ラインのまま継続する。
+  prepareMarathonClear(149, 0);
+  detectTSpin = () => "T_SPIN";
+  lockPiece();
+  assert.equal(totalLines, 149); assert.equal(score, 400 * 15);
+  assert.equal(marathonComplete, false); assert.equal(gameOver, false);
+  prepareMarathonClear(149, 0);
+  detectTSpin = () => "NONE";
+  lockPiece();
+  assert.equal(totalLines, 149); assert.equal(score, 0); assert.equal(marathonComplete, false);
+
+  // Complete時に長押しを解除し、Restart以外の操作では状態を変えない。
+  prepareMarathonClear(149, 1);
+  heldKeys.ArrowLeft = heldKeys.ArrowDown = true;
+  activeDirection = "ArrowLeft"; nextHorizontalTime = 10; nextSoftDropTime = 10;
+  lockPiece();
+  assert.ok(Object.values(heldKeys).every(value => !value));
+  assert.equal(activeDirection, null); assert.equal(nextHorizontalTime, Infinity); assert.equal(nextSoftDropTime, Infinity);
+  const frozenBoard = JSON.stringify(board);
+  const frozenPiece = JSON.stringify(piece);
+  const frozenScore = score;
+  const frozenLines = totalLines;
+  for (const code of ["ArrowLeft", "ArrowRight", "ArrowUp", "KeyZ", "ArrowDown", "Space", "KeyC", "KeyP"]) key(code);
+  update(10000);
+  assert.equal(JSON.stringify(board), frozenBoard); assert.equal(JSON.stringify(piece), frozenPiece);
+  assert.equal(score, frozenScore); assert.equal(totalLines, frozenLines);
+  assert.equal(paused, false); assert.match(statusElement.textContent, /MARATHON COMPLETE/);
+  key("KeyR");
+  assert.equal(marathonComplete, false); assert.equal(gameOver, false); assert.equal(score, 0);
+  assert.equal(totalLines, 0); assert.equal(level, 1); assert.equal(pauseButton.disabled, false);
+  prepareMarathonClear(149, 1); lockPiece();
+  document.getElementById("restart").click();
+  assert.equal(marathonComplete, false); assert.equal(totalLines, 0); assert.equal(level, 1);
+
+  // Game Overとは排他的な終了状態にする。
+  endGame();
+  assert.equal(gameOver, true); assert.equal(marathonComplete, false);
+`);
+
+const debugMarathonStorage = { "falling-block-high-score": "500" };
+const debugMarathonTests = createGame(debugMarathonStorage);
+debugMarathonTests(`
+  debugLevelSelect.value = "15"; debugLevelSelect.change();
+  assert.equal(totalLines, 140); assert.equal(level, 15);
+  totalLines = 149; level = 15;
+  board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  board[TOTAL_ROWS - 1].fill(7); board[TOTAL_ROWS - 1][4] = 0;
+  piece = { rotation: 1, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 1 };
+  lockPiece();
+  assert.equal(marathonComplete, true); assert.equal(totalLines, 150); assert.equal(level, 16);
+  assert.equal(highScore, 500); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "500");
+  restart();
+  assert.equal(marathonComplete, false); assert.equal(totalLines, 140); assert.equal(level, 15);
+  debugLevelSelect.value = "13"; debugLevelSelect.change();
+  assert.equal(marathonComplete, false); assert.equal(totalLines, 120); assert.equal(level, 13);
+`);
+console.log("PASS: Marathon Complete at 150+, final scoring/B2B/Combo, no spawn, frozen input, restart, Game Over separation and debug high-score isolation.");

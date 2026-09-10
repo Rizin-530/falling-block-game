@@ -5,6 +5,7 @@ const VISIBLE_ROWS = 20;
 const HIDDEN_ROWS = 20;
 const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
 const NEXT_COUNT = 5;
+const MARATHON_TARGET_LINES = 150;
 const LINE_CLEAR_SCORES = [0, 100, 300, 500, 800];
 // 代表的なGuideline系得点。Mini Doubleも含む（https://tetris.wiki/Scoring）。
 const T_SPIN_SCORES = [400, 800, 1200, 1600];
@@ -81,6 +82,7 @@ let board;
 let piece;
 let score;
 let gameOver;
+let marathonComplete;
 let paused;
 let nextQueue = [];
 let heldType;
@@ -156,12 +158,20 @@ function spawnPiece(type = nextQueue[0]) {
 }
 
 function endGame() {
+  if (marathonComplete) return;
   lastRotationKick = null;
   gameOver = true;
   clearSpinFeedback();
   updateProgressUI();
   clearHeldKeys();
   statusElement.textContent = "ゲームオーバー — R またはボタンで再開";
+  pauseButton.disabled = true;
+}
+
+function completeMarathon() {
+  marathonComplete = true;
+  clearHeldKeys();
+  statusElement.textContent = "MARATHON COMPLETE — R またはボタンで再開";
   pauseButton.disabled = true;
 }
 
@@ -191,9 +201,9 @@ function getGravityInterval(currentLevel = level) {
 }
 
 function togglePause(time = performance.now()) {
-  if (gameOver) return;
+  if (gameOver || marathonComplete) return;
   advanceTime(time);
-  if (gameOver) return;
+  if (gameOver || marathonComplete) return;
   paused = !paused;
   clearHeldKeys();
   statusElement.textContent = paused ? "一時停止中" : "プレイ中";
@@ -365,7 +375,8 @@ function lockPiece() {
   levelElement.textContent = level;
   dropElapsed = 0;
   holdUsed = false;
-  advancePiece();
+  if (totalLines >= MARATHON_TARGET_LINES) completeMarathon();
+  else advancePiece();
   updateProgressUI();
   showSpinFeedback();
 }
@@ -411,7 +422,7 @@ function draw() {
   board.forEach((row, y) => row.forEach((color, x) => {
     if (color) drawCell(x, y, color);
   }));
-  if (!gameOver) {
+  if (!gameOver && !marathonComplete) {
     const landingY = ghostY();
     context.globalAlpha = 0.25;
     piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
@@ -433,6 +444,7 @@ function restart() {
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
   score = 0;
   gameOver = false;
+  marathonComplete = false;
   paused = false;
   heldType = null;
   holdUsed = false;
@@ -466,10 +478,10 @@ document.addEventListener("keydown", event => {
     if (!event.repeat) togglePause(event.timeStamp);
     return;
   }
-  if (gameOver || paused) return;
+  if (gameOver || marathonComplete || paused) return;
   // 入力前の時間は入力前の姿勢に適用し、着地・リセット前の時間を混ぜない。
   advanceTime(event.timeStamp);
-  if (gameOver) return;
+  if (gameOver || marathonComplete) return;
   if (event.code in heldKeys) {
     heldKeys[event.code] = true;
     if (event.code === "ArrowDown") nextSoftDropTime = lastTime + SOFT_DROP_INTERVAL;
@@ -522,11 +534,11 @@ function advanceTime(time) {
     if (activeDirection && nextHorizontalTime <= time) nextHorizontalTime = time;
     if (heldKeys.ArrowDown && nextSoftDropTime <= time) nextSoftDropTime = time;
   }
-  while (!paused && !gameOver && !document.hidden) {
+  while (!paused && !gameOver && !marathonComplete && !document.hidden) {
     const due = Math.min(nextHorizontalTime, nextSoftDropTime);
     if (due > time) break;
     advanceSimulation(due);
-    if (gameOver) break;
+    if (gameOver || marathonComplete) break;
     if (nextHorizontalTime === due) {
       move(activeDirection === "ArrowLeft" ? -1 : 1, 0);
       nextHorizontalTime += HORIZONTAL_ARR;
@@ -544,7 +556,7 @@ function advanceSimulation(time) {
   if (lastTime === null) lastTime = time;
   // 同じフレーム内で入力が先に処理されても時間を巻き戻さない。
   time = Math.max(time, lastTime);
-  if (!gameOver && !paused && !document.hidden) {
+  if (!gameOver && !marathonComplete && !paused && !document.hidden) {
     let remaining = time - lastTime;
     let changed = false;
     // 落下前と着地後の時間を分け、着地する前の時間を固定待ちに加えない。
