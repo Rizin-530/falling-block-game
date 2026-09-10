@@ -75,8 +75,10 @@ const resultsScoreElement = document.getElementById("results-score");
 const resultsLinesElement = document.getElementById("results-lines");
 const resultsLevelElement = document.getElementById("results-level");
 const resultsHighScoreElement = document.getElementById("results-high-score");
+const boardStageElement = document.querySelector(".board-stage");
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
+let audioContext = null;
 const pauseButton = document.getElementById("pause");
 const HIGH_SCORE_KEY = "falling-block-high-score";
 let highScore = 0;
@@ -126,6 +128,83 @@ function clearSpinFeedback() {
   clearEventElement.textContent = "";
 }
 
+function enableAudio() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    if (!audioContext) audioContext = new AudioContextClass();
+    if (audioContext.state === "suspended") audioContext.resume().catch(() => {});
+  } catch {
+    // 音声が使えない環境でもゲームは継続する。
+  }
+}
+
+function playSound(type) {
+  if (!audioContext || audioContext.state !== "running") return;
+  const sounds = {
+    line: [[330, 0, 0.07]], double: [[360, 0, 0.08]], triple: [[400, 0, 0.09]],
+    tetris: [[390, 0, 0.08], [520, 0.07, 0.11]],
+    "t-spin": [[500, 0, 0.06], [660, 0.055, 0.1]],
+    "t-spin-mini": [[440, 0, 0.08]],
+    "perfect-clear": [[480, 0, 0.07], [640, 0.06, 0.08], [800, 0.13, 0.12]],
+    "level-up": [[440, 0, 0.06], [560, 0.055, 0.09]],
+    "game-over": [[300, 0, 0.1], [220, 0.09, 0.16]],
+    complete: [[440, 0, 0.08], [590, 0.07, 0.09], [740, 0.15, 0.15]],
+  }[type];
+  if (!sounds) return;
+  try {
+    const now = audioContext.currentTime;
+    for (const [frequency, delay, duration] of sounds) {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, now + delay);
+      gain.gain.setValueAtTime(0.0001, now + delay);
+      gain.gain.exponentialRampToValueAtTime(0.045, now + delay + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + duration);
+      oscillator.connect(gain).connect(audioContext.destination);
+      oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+      oscillator.start(now + delay);
+      oscillator.stop(now + delay + duration + 0.01);
+    }
+  } catch {
+    // 一部のAudioNodeが利用できなくてもゲーム処理へ影響させない。
+  }
+}
+
+function replayAnimation(element, className) {
+  element.classList.remove(className);
+  void element.offsetWidth;
+  element.classList.add(className);
+}
+
+function playLockEffects(spin, lines, perfectClear, levelChanged) {
+  if (gameOver) return;
+  let sound = null;
+  let boardEffect = null;
+  if (marathonComplete) sound = "complete";
+  else if (perfectClear) { sound = "perfect-clear"; boardEffect = "effect-perfect"; }
+  else if (spin === "T_SPIN") { sound = "t-spin"; boardEffect = "effect-spin"; }
+  else if (spin === "T_SPIN_MINI") { sound = "t-spin-mini"; boardEffect = "effect-spin"; }
+  else if (lines === 4) { sound = "tetris"; boardEffect = "effect-tetris"; }
+  else if (lines > 0) { sound = ["", "line", "double", "triple"][lines]; boardEffect = "effect-line"; }
+  if (sound) playSound(sound);
+  if (levelChanged && !marathonComplete) playSound("level-up");
+  if (boardEffect) {
+    boardStageElement.classList.remove("effect-line", "effect-tetris", "effect-spin", "effect-perfect");
+    replayAnimation(boardStageElement, boardEffect);
+  }
+  if ((spin !== "NONE" || perfectClear) && !gameOver) replayAnimation(clearEventElement, "event-pop");
+  if (levelChanged) replayAnimation(levelElement, "level-up");
+}
+
+function clearEffects() {
+  boardStageElement.classList.remove("effect-line", "effect-tetris", "effect-spin", "effect-perfect");
+  clearEventElement.classList.remove("event-pop");
+  levelElement.classList.remove("level-up");
+  resultsElement.classList.remove("results-enter", "results-complete");
+}
+
 function showSpinFeedback() {
   clearSpinFeedback();
   if (gameOver || (marathonComplete && !lastPerfectClear)) return;
@@ -150,6 +229,7 @@ function showResults(title) {
   resultsLevelElement.textContent = level;
   resultsHighScoreElement.textContent = highScore;
   resultsElement.hidden = false;
+  replayAnimation(resultsElement, "results-enter");
 }
 
 function hideResults() {
@@ -197,6 +277,7 @@ function endGame() {
   statusElement.textContent = "ゲームオーバー — R またはボタンで再開";
   pauseButton.disabled = true;
   showResults("GAME OVER");
+  playSound("game-over");
 }
 
 function completeMarathon() {
@@ -205,6 +286,7 @@ function completeMarathon() {
   clearHeldKeys();
   statusElement.textContent = "MARATHON COMPLETE — R またはボタンで再開";
   pauseButton.disabled = true;
+  resultsElement.classList.add("results-complete");
   showResults("MARATHON COMPLETE");
 }
 
@@ -406,6 +488,7 @@ function lockPiece() {
   board = remaining;
   lastPerfectClear = cleared > 0 && isBoardEmpty();
   // 今回の消去によるLevel上昇より前の倍率を使う。
+  const previousLevel = level;
   let clearScore = calculateClearScore(lastLockResult.spin, cleared, level);
   const difficult = isDifficultClear(lastLockResult.spin, cleared);
   const b2bBonusApplied = backToBackActive && difficult;
@@ -421,6 +504,7 @@ function lockPiece() {
   if (cleared > 0) backToBackActive = difficult;
   totalLines += cleared;
   level = Math.floor(totalLines / 10) + 1;
+  const levelChanged = level !== previousLevel;
   levelElement.textContent = level;
   dropElapsed = 0;
   holdUsed = false;
@@ -428,6 +512,7 @@ function lockPiece() {
   else advancePiece();
   updateProgressUI();
   showSpinFeedback();
+  playLockEffects(lastLockResult.spin, cleared, lastPerfectClear, levelChanged);
 }
 
 function stepDown(softDrop = false) {
@@ -486,6 +571,7 @@ function draw() {
 
 function restart() {
   clearSpinFeedback();
+  clearEffects();
   hideResults();
   comboCount = -1;
   backToBackActive = false;
@@ -520,6 +606,7 @@ document.addEventListener("keydown", event => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyR", "KeyC", "KeyP", "KeyZ"].includes(event.code)) return;
   event.preventDefault();
+  enableAudio();
   if (event.repeat || heldKeys[event.code]) return;
   if (event.code === "KeyR") {
     if (!event.repeat) restart();
@@ -552,9 +639,10 @@ document.addEventListener("keydown", event => {
   }
   draw();
 });
-document.getElementById("restart").addEventListener("click", restart);
-document.getElementById("play-again").addEventListener("click", restart);
+document.getElementById("restart").addEventListener("click", () => { enableAudio(); restart(); });
+document.getElementById("play-again").addEventListener("click", () => { enableAudio(); restart(); });
 debugLevelSelect.addEventListener("change", () => {
+  enableAudio();
   selectedStartLevel = Number(debugLevelSelect.value);
   restart();
 });
@@ -571,7 +659,7 @@ document.addEventListener("keyup", event => {
     nextHorizontalTime = activeDirection ? lastTime + HORIZONTAL_DAS : Infinity;
   }
 });
-pauseButton.addEventListener("click", event => togglePause(event.timeStamp));
+pauseButton.addEventListener("click", event => { enableAudio(); togglePause(event.timeStamp); });
 
 // 別タブから戻ったときに経過時間分が一気に落ちるのを防ぐ。
 document.addEventListener("visibilitychange", () => {

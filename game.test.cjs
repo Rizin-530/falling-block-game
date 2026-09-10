@@ -20,6 +20,24 @@ function createGame(storage = {}) {
     },
   });
   const previewContext = new Proxy({}, { get: () => () => {} });
+  function mockElement(id) {
+    if (elements[id]) return elements[id];
+    const classes = new Set();
+    return elements[id] = {
+      width: id === "board" ? 300 : 120,
+      height: id === "board" ? 600 : id === "next" ? 200 : 80,
+      offsetWidth: 0,
+      classList: {
+        add(...names) { names.forEach(name => classes.add(name)); },
+        remove(...names) { names.forEach(name => classes.delete(name)); },
+        contains(name) { return classes.has(name); },
+      },
+      getContext: () => id === "board" ? context : previewContext,
+      addEventListener(name, listener) {
+        this[name] = (event = { timeStamp: vm.runInContext("lastTime ?? 0", sandbox) }) => listener(event);
+      },
+    };
+  }
   const sandbox = {
     assert,
     drawCalls,
@@ -29,16 +47,8 @@ function createGame(storage = {}) {
     document: {
       hidden: false,
       addEventListener(name, listener) { listeners[name] = listener; },
-      getElementById(id) {
-        return elements[id] ??= {
-          width: id === "board" ? 300 : 120,
-          height: id === "board" ? 600 : id === "next" ? 200 : 80,
-          getContext: () => id === "board" ? context : previewContext,
-          addEventListener(name, listener) {
-            this[name] = (event = { timeStamp: vm.runInContext("lastTime ?? 0", sandbox) }) => listener(event);
-          },
-        };
-      },
+      getElementById: mockElement,
+      querySelector: mockElement,
     },
     localStorage: {
       getItem(key) { return storage[key] ?? null; },
@@ -2326,3 +2336,78 @@ debugPerfectClearTests(`
   assert.equal(highScore, 500); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "500");
 `);
 console.log("PASS: Perfect Clear detection across all/hidden rows, level scores, B2B Tetris, T-Spin, Combo, Marathon, Results, storage, feedback and restart.");
+
+const effectTests = createGame();
+effectTests(`
+  // AudioContextは最初のユーザー操作で1つだけ作り、Restartでも再利用する。
+  let audioContextCreations = 0;
+  window.AudioContext = class {
+    constructor() { audioContextCreations++; this.state = "running"; this.currentTime = 0; }
+  };
+  key("ArrowLeft"); key("ArrowRight"); document.getElementById("restart").click();
+  assert.equal(audioContextCreations, 1);
+
+  const soundEvents = [];
+  playSound = type => soundEvents.push(type);
+  let forcedSpin = "NONE";
+  detectTSpin = () => forcedSpin;
+
+  function prepareEffectClear(lines, perfect = false, startLines = 0) {
+    restart(); soundEvents.length = 0; forcedSpin = "NONE";
+    totalLines = startLines; level = Math.floor(totalLines / 10) + 1;
+    board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    const shapes = { 1:[[1,1,1,1]], 2:[[1,1],[1,1]], 3:[[1,0],[1,1],[1,0]], 4:[[1],[1],[1],[1]] };
+    piece = { rotation: 0, shape: shapes[lines], x: 4, y: TOTAL_ROWS - lines, color: 1 };
+    for (let y = TOTAL_ROWS - lines; y < TOTAL_ROWS; y++) board[y].fill(7);
+    piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
+      if (cell) board[piece.y + dy][piece.x + dx] = 0;
+    }));
+    if (!perfect) board[0][0] = 7;
+  }
+
+  for (const [lines, sound] of [[1,"line"],[2,"double"],[3,"triple"],[4,"tetris"]]) {
+    prepareEffectClear(lines); lockPiece();
+    assert.deepEqual(soundEvents, [sound]);
+    const count = soundEvents.length; draw(); draw(); assert.equal(soundEvents.length, count);
+  }
+
+  prepareEffectClear(1); forcedSpin = "T_SPIN"; lockPiece();
+  assert.deepEqual(soundEvents, ["t-spin"]);
+  prepareEffectClear(1); forcedSpin = "T_SPIN_MINI"; lockPiece();
+  assert.deepEqual(soundEvents, ["t-spin-mini"]);
+  prepareEffectClear(1, true); lockPiece();
+  assert.deepEqual(soundEvents, ["perfect-clear"]);
+  assert.ok(boardStageElement.classList.contains("effect-perfect"));
+  soundEvents.length = 0; playLockEffects("NONE", 1, false, false);
+  assert.deepEqual(soundEvents, ["line"]);
+  assert.ok(boardStageElement.classList.contains("effect-line"));
+  assert.ok(!boardStageElement.classList.contains("effect-perfect"));
+
+  // Level Upは主要音に加える補助音。PCはT-Spinより優先する。
+  prepareEffectClear(1, false, 9); lockPiece();
+  assert.deepEqual(soundEvents, ["line", "level-up"]);
+  assert.ok(levelElement.classList.contains("level-up"));
+  prepareEffectClear(1, true, 9); forcedSpin = "T_SPIN"; lockPiece();
+  assert.deepEqual(soundEvents, ["perfect-clear", "level-up"]);
+
+  // Marathon Completeは同時成立した通常音とLevel Up音をまとめて置き換える。
+  prepareEffectClear(1, true, 149); lockPiece();
+  assert.deepEqual(soundEvents, ["complete"]);
+  assert.ok(resultsElement.classList.contains("results-enter"));
+  assert.ok(resultsElement.classList.contains("results-complete"));
+  const completeCount = soundEvents.length; draw(); draw(); assert.equal(soundEvents.length, completeCount);
+
+  restart(); soundEvents.length = 0;
+  assert.ok(!boardStageElement.classList.contains("effect-perfect"));
+  assert.ok(!levelElement.classList.contains("level-up"));
+  assert.ok(!resultsElement.classList.contains("results-enter"));
+  assert.ok(!resultsElement.classList.contains("results-complete"));
+  endGame(); assert.deepEqual(soundEvents, ["game-over"]);
+  assert.ok(resultsElement.classList.contains("results-enter"));
+
+  // Restart後の次イベントでも同じclassと音を再発火できる。
+  prepareEffectClear(4); lockPiece();
+  assert.deepEqual(soundEvents, ["tetris"]);
+  assert.ok(boardStageElement.classList.contains("effect-tetris"));
+`);
+console.log("PASS: event sound routing/priority, one-shot draw behavior, single AudioContext, visual classes, Results effects and Restart cleanup.");
