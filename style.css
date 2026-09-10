@@ -93,6 +93,19 @@ button:active:not(:disabled) { background: #3a3e47; }
 button:focus-visible { outline: 2px solid #8acfea; outline-offset: 3px; }
 button:disabled { opacity: 0.4; cursor: default; }
 .footer-note { text-align: center; color: #969ba5; font-size: 11px; margin-top: 8px; }
+.settings-overlay { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 20px; background: #08090be6; overflow-y: auto; }
+.settings-overlay[hidden] { display: none; }
+.settings-panel { width: min(100%, 380px); padding: 22px 20px; border: 1px solid #454850; border-radius: 8px; background: #121316; box-shadow: 0 12px 32px #0009; }
+.settings-panel > h2 { margin-bottom: 18px; color: #ededee; font-size: 14px; }
+.setting-row { margin-top: 14px; }
+.setting-row label, .setting-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #b9bdc5; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
+.setting-row output { color: #ededee; font-variant-numeric: tabular-nums; }
+.setting-row input[type="range"] { width: 100%; margin: 9px 0 0; accent-color: #8acfea; }
+.setting-row p { margin-top: 2px; color: #777c86; font-size: 9px; text-align: center; }
+.setting-toggle { margin-top: 16px; padding-top: 14px; border-top: 1px solid #292b30; }
+.setting-toggle input { width: 18px; height: 18px; accent-color: #8acfea; }
+.settings-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 20px; }
+body.effects-off .board-stage::after, body.effects-off #clear-event.event-pop, body.effects-off #level.level-up, body.effects-off .results-overlay.results-enter { animation: none; }
 @keyframes board-flash { 0% { opacity: 0.18; } 100% { opacity: 0; } }
 @keyframes board-flash-strong { 0% { opacity: 0.28; } 100% { opacity: 0; } }
 @keyframes board-spin-flash { 0% { opacity: 0.22; background: #d5b3f2; } 100% { opacity: 0; } }
@@ -140,4 +153,10 @@ button:disabled { opacity: 0.4; cursor: default; }
   .results-card { padding: 16px 14px; }
   .results-stats { gap: 8px; margin-top: 14px; }
   #play-again { margin-top: 14px; }
+  .settings-overlay { place-items: start center; padding: 10px; }
+  .settings-panel { padding: 16px 14px; }
+  .settings-panel > h2 { margin-bottom: 8px; }
+  .setting-row { margin-top: 9px; }
+  .setting-toggle { margin-top: 10px; padding-top: 9px; }
+  .settings-actions { margin-top: 12px; }
 }

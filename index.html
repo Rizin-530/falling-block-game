@@ -81,10 +81,39 @@
         <div class="actions">
           <button id="pause" type="button">一時停止（P）</button>
           <button id="restart" type="button">リスタート（R）</button>
+          <button id="open-settings" type="button">SETTINGS</button>
         </div>
       </aside>
     </div>
     <p class="footer-note">薄いブロックは着地点の目印です。</p>
   </main>
+  <section id="settings-overlay" class="settings-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <div class="settings-panel">
+      <h2 id="settings-title">SETTINGS</h2>
+      <div class="setting-row">
+        <label for="setting-das">DAS <output id="setting-das-value" for="setting-das">170 ms</output></label>
+        <input id="setting-das" type="range" min="80" max="300" step="10" value="170">
+        <p>FAST ← 数字が小さいほど速い → SLOW</p>
+      </div>
+      <div class="setting-row">
+        <label for="setting-arr">ARR <output id="setting-arr-value" for="setting-arr">50 ms</output></label>
+        <input id="setting-arr" type="range" min="20" max="100" step="5" value="50">
+      </div>
+      <div class="setting-row">
+        <label for="setting-soft-drop">SOFT DROP <output id="setting-soft-drop-value" for="setting-soft-drop">40 ms</output></label>
+        <input id="setting-soft-drop" type="range" min="20" max="100" step="5" value="40">
+      </div>
+      <label class="setting-toggle" for="setting-sfx"><span>SFX</span><input id="setting-sfx" type="checkbox" checked></label>
+      <div class="setting-row">
+        <label for="setting-volume">VOLUME <output id="setting-volume-value" for="setting-volume">100%</output></label>
+        <input id="setting-volume" type="range" min="0" max="100" step="5" value="100">
+      </div>
+      <label class="setting-toggle" for="setting-effects"><span>VISUAL EFFECTS</span><input id="setting-effects" type="checkbox" checked></label>
+      <div class="settings-actions">
+        <button id="reset-settings" type="button">RESET DEFAULTS</button>
+        <button id="close-settings" type="button">CLOSE</button>
+      </div>
+    </div>
+  </section>
 </body>
 </html>

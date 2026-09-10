@@ -17,10 +17,47 @@ const SPAWN_Y = HIDDEN_ROWS - 1;
 const CELL = 30;
 const LOCK_DELAY = 500;
 const MAX_LOCK_RESETS = 15;
-const HORIZONTAL_DAS = 170;
-const HORIZONTAL_ARR = 50;
-const SOFT_DROP_INTERVAL = 40;
 const MAX_INPUT_CATCHUP = 250;
+const SETTINGS_KEY = "falling-block-settings";
+const DEFAULT_SETTINGS = Object.freeze({
+  dasMs: 170,
+  arrMs: 50,
+  softDropMs: 40,
+  sfxEnabled: true,
+  sfxVolume: 100,
+  effectsEnabled: true,
+});
+
+function validNumber(value, min, max, fallback) {
+  return Number.isFinite(value) && Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+}
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return { ...DEFAULT_SETTINGS };
+    return {
+      dasMs: validNumber(saved.dasMs, 80, 300, DEFAULT_SETTINGS.dasMs),
+      arrMs: validNumber(saved.arrMs, 20, 100, DEFAULT_SETTINGS.arrMs),
+      softDropMs: validNumber(saved.softDropMs, 20, 100, DEFAULT_SETTINGS.softDropMs),
+      sfxEnabled: typeof saved.sfxEnabled === "boolean" ? saved.sfxEnabled : DEFAULT_SETTINGS.sfxEnabled,
+      sfxVolume: validNumber(saved.sfxVolume, 0, 100, DEFAULT_SETTINGS.sfxVolume),
+      effectsEnabled: typeof saved.effectsEnabled === "boolean" ? saved.effectsEnabled : DEFAULT_SETTINGS.effectsEnabled,
+    };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // 保存できない環境でも現在のページ内では設定を使える。
+  }
+}
+
+let settings = loadSettings();
 const heldKeys = { ArrowLeft: false, ArrowRight: false, ArrowDown: false };
 let activeDirection = null;
 let nextHorizontalTime = Infinity;
@@ -76,9 +113,22 @@ const resultsLinesElement = document.getElementById("results-lines");
 const resultsLevelElement = document.getElementById("results-level");
 const resultsHighScoreElement = document.getElementById("results-high-score");
 const boardStageElement = document.querySelector(".board-stage");
+const gameUiElement = document.querySelector("main");
+const settingsOverlay = document.getElementById("settings-overlay");
+const settingsButton = document.getElementById("open-settings");
+const closeSettingsButton = document.getElementById("close-settings");
+const resetSettingsButton = document.getElementById("reset-settings");
+const dasInput = document.getElementById("setting-das");
+const arrInput = document.getElementById("setting-arr");
+const softDropInput = document.getElementById("setting-soft-drop");
+const sfxInput = document.getElementById("setting-sfx");
+const volumeInput = document.getElementById("setting-volume");
+const effectsInput = document.getElementById("setting-effects");
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
 let audioContext = null;
+let settingsOpen = false;
+let settingsWasPaused = false;
 const pauseButton = document.getElementById("pause");
 const HIGH_SCORE_KEY = "falling-block-high-score";
 let highScore = 0;
@@ -140,7 +190,7 @@ function enableAudio() {
 }
 
 function playSound(type) {
-  if (!audioContext || audioContext.state !== "running") return;
+  if (!settings.sfxEnabled || settings.sfxVolume === 0 || !audioContext || audioContext.state !== "running") return;
   const sounds = {
     line: [[330, 0, 0.07]], double: [[360, 0, 0.08]], triple: [[400, 0, 0.09]],
     tetris: [[390, 0, 0.08], [520, 0.07, 0.11]],
@@ -160,7 +210,7 @@ function playSound(type) {
       oscillator.type = "sine";
       oscillator.frequency.setValueAtTime(frequency, now + delay);
       gain.gain.setValueAtTime(0.0001, now + delay);
-      gain.gain.exponentialRampToValueAtTime(0.045, now + delay + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.045 * settings.sfxVolume / 100, now + delay + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + duration);
       oscillator.connect(gain).connect(audioContext.destination);
       oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
@@ -203,6 +253,81 @@ function clearEffects() {
   clearEventElement.classList.remove("event-pop");
   levelElement.classList.remove("level-up");
   resultsElement.classList.remove("results-enter", "results-complete");
+}
+
+function updateSettingsUI() {
+  dasInput.value = settings.dasMs;
+  arrInput.value = settings.arrMs;
+  softDropInput.value = settings.softDropMs;
+  sfxInput.checked = settings.sfxEnabled;
+  volumeInput.value = settings.sfxVolume;
+  effectsInput.checked = settings.effectsEnabled;
+  document.getElementById("setting-das-value").textContent = `${settings.dasMs} ms`;
+  document.getElementById("setting-arr-value").textContent = `${settings.arrMs} ms`;
+  document.getElementById("setting-soft-drop-value").textContent = `${settings.softDropMs} ms`;
+  document.getElementById("setting-volume-value").textContent = `${settings.sfxVolume}%`;
+  document.body.classList.toggle("effects-off", !settings.effectsEnabled);
+}
+
+function openSettings(time = performance.now()) {
+  if (settingsOpen) return;
+  settingsWasPaused = paused;
+  if (!gameOver && !marathonComplete && !paused) {
+    advanceTime(time);
+    if (!gameOver && !marathonComplete) paused = true;
+  }
+  clearHeldKeys();
+  lastTime = null;
+  settingsOpen = true;
+  updateSettingsUI();
+  gameUiElement.inert = true;
+  settingsOverlay.hidden = false;
+  if (!gameOver && !marathonComplete) {
+    statusElement.textContent = "設定中";
+    pauseButton.textContent = "再開（P）";
+  }
+  closeSettingsButton.focus?.();
+}
+
+function closeSettings() {
+  if (!settingsOpen) return;
+  settingsOverlay.hidden = true;
+  gameUiElement.inert = false;
+  settingsOpen = false;
+  clearHeldKeys();
+  lastTime = null;
+  if (!gameOver && !marathonComplete) {
+    paused = settingsWasPaused;
+    statusElement.textContent = paused ? "一時停止中" : "プレイ中";
+    pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
+  }
+  settingsWasPaused = false;
+  settingsButton.focus?.();
+}
+
+function keepSettingsFocus(event) {
+  if (event.code !== "Tab") return;
+  const focusable = [dasInput, arrInput, softDropInput, sfxInput, volumeInput, effectsInput, resetSettingsButton, closeSettingsButton]
+    .filter(element => !element.disabled && !element.hidden);
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  } else if (!focusable.includes(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+}
+
+function changeSetting(name, value) {
+  settings[name] = value;
+  updateSettingsUI();
+  saveSettings();
 }
 
 function showSpinFeedback() {
@@ -603,6 +728,14 @@ function restart() {
 }
 
 document.addEventListener("keydown", event => {
+  if (settingsOpen) {
+    keepSettingsFocus(event);
+    if (event.code === "Escape") {
+      event.preventDefault();
+      closeSettings();
+    }
+    return;
+  }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyR", "KeyC", "KeyP", "KeyZ"].includes(event.code)) return;
   event.preventDefault();
@@ -622,10 +755,10 @@ document.addEventListener("keydown", event => {
   if (gameOver || marathonComplete) return;
   if (event.code in heldKeys) {
     heldKeys[event.code] = true;
-    if (event.code === "ArrowDown") nextSoftDropTime = lastTime + SOFT_DROP_INTERVAL;
+    if (event.code === "ArrowDown") nextSoftDropTime = lastTime + settings.softDropMs;
     else {
       activeDirection = event.code;
-      nextHorizontalTime = lastTime + HORIZONTAL_DAS;
+      nextHorizontalTime = lastTime + settings.dasMs;
     }
   }
   switch (event.code) {
@@ -641,6 +774,20 @@ document.addEventListener("keydown", event => {
 });
 document.getElementById("restart").addEventListener("click", () => { enableAudio(); restart(); });
 document.getElementById("play-again").addEventListener("click", () => { enableAudio(); restart(); });
+settingsButton.addEventListener("click", event => openSettings(event.timeStamp));
+closeSettingsButton.addEventListener("click", closeSettings);
+resetSettingsButton.addEventListener("click", () => {
+  settings = { ...DEFAULT_SETTINGS };
+  clearHeldKeys();
+  updateSettingsUI();
+  saveSettings();
+});
+dasInput.addEventListener("input", () => changeSetting("dasMs", Number(dasInput.value)));
+arrInput.addEventListener("input", () => changeSetting("arrMs", Number(arrInput.value)));
+softDropInput.addEventListener("input", () => changeSetting("softDropMs", Number(softDropInput.value)));
+sfxInput.addEventListener("change", () => changeSetting("sfxEnabled", sfxInput.checked));
+volumeInput.addEventListener("input", () => changeSetting("sfxVolume", Number(volumeInput.value)));
+effectsInput.addEventListener("change", () => changeSetting("effectsEnabled", effectsInput.checked));
 debugLevelSelect.addEventListener("change", () => {
   enableAudio();
   selectedStartLevel = Number(debugLevelSelect.value);
@@ -656,7 +803,7 @@ document.addEventListener("keyup", event => {
   } else if (activeDirection === event.code) {
     const other = event.code === "ArrowLeft" ? "ArrowRight" : "ArrowLeft";
     activeDirection = heldKeys[other] ? other : null;
-    nextHorizontalTime = activeDirection ? lastTime + HORIZONTAL_DAS : Infinity;
+    nextHorizontalTime = activeDirection ? lastTime + settings.dasMs : Infinity;
   }
 });
 pauseButton.addEventListener("click", event => { enableAudio(); togglePause(event.timeStamp); });
@@ -681,11 +828,11 @@ function advanceTime(time) {
     if (gameOver || marathonComplete) break;
     if (nextHorizontalTime === due) {
       move(activeDirection === "ArrowLeft" ? -1 : 1, 0);
-      nextHorizontalTime += HORIZONTAL_ARR;
+      nextHorizontalTime += settings.arrMs;
     }
     if (nextSoftDropTime === due) {
       stepDown(true);
-      nextSoftDropTime += SOFT_DROP_INTERVAL;
+      nextSoftDropTime += settings.softDropMs;
     }
     draw();
   }
@@ -733,5 +880,6 @@ function update(time) {
   requestAnimationFrame(update);
 }
 
+updateSettingsUI();
 restart();
 requestAnimationFrame(update);

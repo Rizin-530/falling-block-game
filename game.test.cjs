@@ -31,7 +31,13 @@ function createGame(storage = {}) {
         add(...names) { names.forEach(name => classes.add(name)); },
         remove(...names) { names.forEach(name => classes.delete(name)); },
         contains(name) { return classes.has(name); },
+        toggle(name, force) {
+          const add = force === undefined ? !classes.has(name) : force;
+          if (add) classes.add(name); else classes.delete(name);
+          return add;
+        },
       },
+      focus() { this.focused = true; sandbox.document.activeElement = this; },
       getContext: () => id === "board" ? context : previewContext,
       addEventListener(name, listener) {
         this[name] = (event = { timeStamp: vm.runInContext("lastTime ?? 0", sandbox) }) => listener(event);
@@ -46,6 +52,8 @@ function createGame(storage = {}) {
     emit(name) { listeners[name](); },
     document: {
       hidden: false,
+      activeElement: null,
+      body: mockElement("body"),
       addEventListener(name, listener) { listeners[name] = listener; },
       getElementById: mockElement,
       querySelector: mockElement,
@@ -2411,3 +2419,114 @@ effectTests(`
   assert.ok(boardStageElement.classList.contains("effect-tetris"));
 `);
 console.log("PASS: event sound routing/priority, one-shot draw behavior, single AudioContext, visual classes, Results effects and Restart cleanup.");
+
+const settingsStorage = { "falling-block-high-score": "4321" };
+const settingsTests = createGame(settingsStorage);
+settingsTests(`
+  assert.deepEqual(settings, DEFAULT_SETTINGS);
+  assert.equal(settings.dasMs, 170); assert.equal(settings.arrMs, 50); assert.equal(settings.softDropMs, 40);
+  assert.equal(settings.sfxEnabled, true); assert.equal(settings.sfxVolume, 100); assert.equal(settings.effectsEnabled, true);
+
+  dasInput.value = "140"; dasInput.input();
+  arrInput.value = "30"; arrInput.input();
+  softDropInput.value = "25"; softDropInput.input();
+  sfxInput.checked = false; sfxInput.change();
+  volumeInput.value = "50"; volumeInput.input();
+  effectsInput.checked = false; effectsInput.change();
+  assert.deepEqual(settings, { dasMs:140, arrMs:30, softDropMs:25, sfxEnabled:false, sfxVolume:50, effectsEnabled:false });
+  assert.ok(document.body.classList.contains("effects-off"));
+  assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "4321");
+  const savedSettings = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+  assert.deepEqual(savedSettings, settings);
+
+  // 実際のrepeat時計が設定値を参照する。
+  restart(); piece = { shape:[[1]], rotation:0, x:5, y:20, color:1 }; board = Array.from({length:TOTAL_ROWS},()=>Array(COLS).fill(0));
+  press("ArrowLeft", 0); assert.equal(piece.x, 4);
+  advanceTime(139); assert.equal(piece.x, 4);
+  advanceTime(140); assert.equal(piece.x, 3);
+  advanceTime(169); assert.equal(piece.x, 3);
+  advanceTime(170); assert.equal(piece.x, 2);
+  release("ArrowLeft", 170);
+  press("ArrowDown", 200); const softY = piece.y; const softScore = score;
+  advanceTime(224); assert.equal(piece.y, softY);
+  advanceTime(225); assert.equal(piece.y, softY + 1); assert.equal(score, softScore + 1);
+  release("ArrowDown", 225);
+
+  // Settings中はheld inputを消し、ゲーム用キーを受け付けない。
+  press("ArrowRight", 300); const settingsX = piece.x;
+  openSettings(300); assert.equal(settingsOpen, true); assert.equal(paused, true);
+  assert.equal(gameUiElement.inert, true); assert.equal(document.activeElement, closeSettingsButton);
+  assert.equal(activeDirection, null); assert.equal(heldKeys.ArrowRight, false);
+  press("ArrowRight", 350); press("Space", 350); assert.equal(piece.x, settingsX);
+  key("Tab"); assert.equal(document.activeElement, dasInput);
+  key("Tab", false, { shiftKey:true }); assert.equal(document.activeElement, closeSettingsButton);
+  dasInput.focus(); key("Tab", false, { shiftKey:true }); assert.equal(document.activeElement, closeSettingsButton);
+  closeSettings(); assert.equal(settingsOpen, false); assert.equal(paused, false); assert.equal(lastTime, null);
+  assert.equal(gameUiElement.inert, false); assert.equal(document.activeElement, settingsButton);
+  audioContext = null; settingsButton.click(); assert.equal(audioContext, null); assert.equal(settingsOpen, true);
+  key("Escape"); assert.equal(settingsOpen, false);
+  settingsButton.click(); settingsButton.click(); assert.equal(settingsOpen, true); closeSettings();
+
+  // 元からPauseなら、閉じてもPauseのまま。
+  togglePause(400); assert.equal(paused, true);
+  openSettings(400); closeSettings(); assert.equal(paused, true);
+  togglePause(450); assert.equal(paused, false);
+
+  // 長時間開いてもGravityとLock Delayへ時間を持ち越さない。
+  piece = { shape:[[1]], rotation:0, x:4, y:TOTAL_ROWS-1, color:1 }; lockElapsed = 400; lastTime = 500;
+  openSettings(500); closeSettings(); advanceTime(30500);
+  assert.equal(lockElapsed, 400); assert.equal(board[TOTAL_ROWS-1][4], 0);
+
+  // Game Over / Completeから閉じても終了状態を維持する。
+  restart(); endGame(); openSettings(31000); closeSettings(); assert.equal(gameOver, true);
+  restart(); completeMarathon(); openSettings(32000); closeSettings(); assert.equal(marathonComplete, true); assert.equal(resultsElement.hidden, false);
+
+  // Reset Defaultsは設定だけを戻し、High Scoreを保持する。
+  highScore = 4321; highScoreElement.textContent = highScore;
+  settings = { dasMs:100, arrMs:20, softDropMs:20, sfxEnabled:false, sfxVolume:0, effectsEnabled:false };
+  resetSettingsButton.click(); assert.deepEqual(settings, DEFAULT_SETTINGS);
+  assert.equal(highScore, 4321); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "4321");
+  restart(); assert.deepEqual(settings, DEFAULT_SETTINGS);
+
+  // SFX OFF/ONとMaster Volume。既存0.045 gainへ割合を掛ける。
+  let oscillatorCount = 0; const peaks = [];
+  audioContext = {
+    state:"running", currentTime:0, destination:{},
+    createOscillator(){ return { type:"", frequency:{setValueAtTime(){}}, connect(){return this;}, start(){}, stop(){}, disconnect(){}, onended:null }; },
+    createGain(){ return { gain:{ setValueAtTime(){}, exponentialRampToValueAtTime(value){ peaks.push(value); } }, connect(){return this;}, disconnect(){} }; }
+  };
+  audioContext.createOscillator = () => { oscillatorCount++; return { frequency:{setValueAtTime(){}}, connect(){return this;}, start(){}, stop(){}, disconnect(){}, onended:null }; };
+  settings.sfxEnabled = false; playSound("line"); assert.equal(oscillatorCount, 0);
+  settings.sfxEnabled = true; settings.sfxVolume = 50; playSound("line"); assert.equal(oscillatorCount, 1); assert.ok(peaks.includes(0.0225));
+  settings.sfxVolume = 0; playSound("line"); assert.equal(oscillatorCount, 1);
+
+  // Effects OFFは文字を消さず、CSS用classだけを切り替える。
+  settings.effectsEnabled = false; updateSettingsUI();
+  clearEventElement.textContent = "T-SPIN"; assert.ok(document.body.classList.contains("effects-off")); assert.equal(clearEventElement.textContent, "T-SPIN");
+  settings.effectsEnabled = true; updateSettingsUI(); assert.ok(!document.body.classList.contains("effects-off"));
+`);
+
+// 保存した設定は新しいゲームでも復元する。
+createGame(settingsStorage)(`
+  assert.deepEqual(settings, DEFAULT_SETTINGS);
+  assert.equal(highScore, 4321);
+`);
+const persistedSettings = {
+  "falling-block-settings": JSON.stringify({ dasMs:120, arrMs:25, softDropMs:30, sfxEnabled:false, sfxVolume:45, effectsEnabled:false })
+};
+createGame(persistedSettings)(`
+  assert.deepEqual(settings, { dasMs:120, arrMs:25, softDropMs:30, sfxEnabled:false, sfxVolume:45, effectsEnabled:false });
+  assert.equal(dasInput.value, 120); assert.equal(document.getElementById("setting-volume-value").textContent, "45%");
+  restart(); assert.equal(settings.dasMs, 120); assert.equal(settings.sfxEnabled, false);
+`);
+for (const value of ["{broken", JSON.stringify({ dasMs:-1000, arrMs:"abc", softDropMs:null, sfxVolume:999 })]) {
+  createGame({ "falling-block-settings": value })(`
+    assert.equal(settings.dasMs,170); assert.equal(settings.arrMs,50); assert.equal(settings.softDropMs,40);
+    assert.equal(settings.sfxVolume,100); assert.equal(settings.sfxEnabled,true); assert.equal(settings.effectsEnabled,true);
+  `);
+}
+createGame(blockedStorage)(`
+  changeSetting("dasMs", 150); assert.equal(settings.dasMs, 150);
+  restart(); assert.equal(settings.dasMs, 150);
+`);
+console.log("PASS: Settings defaults/storage validation, live DAS/ARR/drop timing, SFX/volume/effects, Pause restoration, lifecycle and high-score isolation.");
