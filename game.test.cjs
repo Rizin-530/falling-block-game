@@ -1961,3 +1961,84 @@ gravityTests(`
   assert.equal(level, 1); assert.equal(dropElapsed, 0); assert.equal(getGravityInterval(), 1000);
 `);
 console.log("PASS: nonlinear Marathon gravity values/cap, multi-row frames, collision safety, lock boundary, frame-rate consistency, pause and restart.");
+
+const debugLevelStorage = { "falling-block-high-score": "500" };
+const debugLevelTests = createGame(debugLevelStorage);
+debugLevelTests(`
+  function selectDebugLevel(value) {
+    debugLevelSelect.value = String(value);
+    debugLevelSelect.change();
+  }
+  const expectedIntervals = { 1: 1000, 5: 355, 10: 64, 13: 18, 15: 7 };
+  for (const selected of [1, 5, 10, 13, 15]) {
+    selectDebugLevel(selected);
+    assert.equal(selectedStartLevel, selected);
+    assert.equal(level, selected);
+    assert.equal(totalLines, (selected - 1) * 10);
+    assert.equal(Number(levelElement.textContent), selected);
+    assert.equal(Number(linesElement.textContent), (selected - 1) * 10);
+    assert.equal(debugLevelSelect.value, String(selected));
+    assert.ok(Math.abs(getGravityInterval() - expectedIntervals[selected]) < 1);
+    assert.equal(score, 0);
+    assert.equal(board.flat().filter(Boolean).length, 0);
+    assert.equal(heldType, null);
+    assert.equal(holdUsed, false);
+    assert.equal(backToBackActive, false);
+    assert.equal(comboCount, -1);
+    assert.equal(paused, false);
+    assert.equal(dropElapsed, 0);
+    assert.equal(lockElapsed, 0);
+    assert.equal(lockResets, 0);
+    assert.equal(nextQueue.length, NEXT_COUNT);
+  }
+
+  // Level変更は盤面・入力・HOLD・連鎖・表示・各タイマーを新ゲームへ戻す。
+  selectDebugLevel(5); update(0); press("ArrowDown", 1);
+  heldType = 2; holdUsed = true; backToBackActive = true; comboCount = 3;
+  board[TOTAL_ROWS - 1][0] = 7; lockElapsed = 300; lockResets = 8;
+  lastLockResult = { spin: "T_SPIN", lines: 1 }; showSpinFeedback();
+  selectDebugLevel(13);
+  assert.ok(Object.values(heldKeys).every(value => !value));
+  assert.equal(nextHorizontalTime, Infinity); assert.equal(nextSoftDropTime, Infinity);
+  assert.equal(board.flat().filter(Boolean).length, 0);
+  assert.equal(heldType, null); assert.equal(holdUsed, false);
+  assert.equal(backToBackActive, false); assert.equal(comboCount, -1);
+  assert.equal(clearEventElement.textContent, "");
+  assert.equal(lastLockResult, null); assert.equal(lastTime, null);
+  assert.equal(dropElapsed, 0); assert.equal(lockElapsed, 0); assert.equal(lockResets, 0);
+
+  // RestartとGame Over後も、選択中の開始Levelを維持する。
+  addScore(50); hardDrop(); restart();
+  assert.equal(level, 13); assert.equal(totalLines, 120); assert.equal(score, 0);
+  endGame(); assert.ok(gameOver); key("KeyR");
+  assert.equal(gameOver, false); assert.equal(level, 13); assert.equal(totalLines, 120);
+
+  // Pause中の選択も、Pause解除済みの新ゲームとして開始する。
+  update(0); key("KeyP"); assert.ok(paused);
+  selectDebugLevel(10);
+  assert.equal(paused, false); assert.equal(level, 10); assert.equal(statusElement.textContent, "プレイ中");
+
+  // 選択Levelを得点倍率に使い、通常のLevel進行も継続する。
+  function clearSingle() {
+    board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    board[TOTAL_ROWS - 1].fill(7); board[TOTAL_ROWS - 1][4] = 0;
+    piece = { rotation: 1, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 1 };
+    lastRotationKick = null;
+    lockPiece();
+  }
+  selectDebugLevel(10); clearSingle();
+  assert.equal(score, 1000); assert.equal(totalLines, 91); assert.equal(level, 10);
+  selectDebugLevel(5);
+  for (let count = 0; count < 10; count++) clearSingle();
+  assert.equal(totalLines, 50); assert.equal(level, 6);
+
+  // 高Level試遊のScoreは表示するが、通常High Scoreは変更しない。
+  selectDebugLevel(15); addScore(2000);
+  assert.equal(score, 2000); assert.equal(highScore, 500);
+  assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "500");
+  restart(); assert.equal(highScore, 500); assert.equal(score, 0); assert.equal(level, 15);
+  selectDebugLevel(1); addScore(600);
+  assert.equal(highScore, 600); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "600");
+  restart(); assert.equal(level, 1); assert.equal(totalLines, 0); assert.equal(highScore, 600);
+`);
+console.log("PASS: debug Level 1/5/10/13/15 selection, full restart state, gravity, progression, score multiplier and high-score isolation.");

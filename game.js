@@ -64,6 +64,7 @@ const linesElement = document.getElementById("lines");
 const b2bElement = document.getElementById("b2b");
 const comboElement = document.getElementById("combo");
 const clearEventElement = document.getElementById("clear-event");
+const debugLevelSelect = document.getElementById("debug-level");
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
 const pauseButton = document.getElementById("pause");
@@ -98,6 +99,8 @@ let lastLockResult = null;
 let backToBackActive = false;
 // -1: 継続なし、0: 最初の消去、1以上: Comboボーナス対象。
 let comboCount = -1;
+// Level 1は通常ゲーム。高Level選択時だけHigh Scoreの対象外にする。
+let selectedStartLevel = 1;
 
 function updateProgressUI() {
   linesElement.textContent = totalLines;
@@ -288,7 +291,7 @@ function rotate(direction = 1) {
 function addScore(points) {
   score += points;
   scoreElement.textContent = score;
-  if (score > highScore) {
+  if (selectedStartLevel === 1 && score > highScore) {
     highScore = score;
     try {
       // 他のタブの記録を、起動時に読んだ古い値で上書きしない。
@@ -433,9 +436,10 @@ function restart() {
   paused = false;
   heldType = null;
   holdUsed = false;
-  totalLines = 0;
-  level = 1;
+  totalLines = (selectedStartLevel - 1) * 10;
+  level = selectedStartLevel;
   levelElement.textContent = level;
+  debugLevelSelect.value = String(selectedStartLevel);
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   bag = [];
@@ -486,6 +490,10 @@ document.addEventListener("keydown", event => {
   draw();
 });
 document.getElementById("restart").addEventListener("click", restart);
+debugLevelSelect.addEventListener("change", () => {
+  selectedStartLevel = Number(debugLevelSelect.value);
+  restart();
+});
 document.addEventListener("keyup", event => {
   if (!(event.code in heldKeys) || !heldKeys[event.code]) return;
   advanceTime(event.timeStamp);
