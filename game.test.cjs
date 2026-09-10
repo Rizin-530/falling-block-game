@@ -157,9 +157,9 @@ run(`
   key("ArrowDown");
   assert.equal(score, 1);
   assert.equal(piece.y, SPAWN_Y + 1);
-  update(0); update(699);
+  update(0); update(999);
   assert.equal(piece.y, SPAWN_Y + 1);
-  update(700);
+  update(1000);
   assert.equal(piece.y, SPAWN_Y + 2);
 
   totalLines = 9;
@@ -167,13 +167,13 @@ run(`
   piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: HIDDEN_ROWS + 16, color: 1 };
   lockPiece();
   assert.equal(level, 2);
-  assert.equal(dropInterval(), 640);
-  update(1339);
+  assert.ok(Math.abs(getGravityInterval() - 793) < 1);
+  update(1792);
   assert.equal(piece.y, SPAWN_Y + 0);
-  update(1340);
+  update(1793);
   assert.equal(piece.y, SPAWN_Y + 1);
   level = 100;
-  assert.equal(dropInterval(), 100);
+  assert.equal(getGravityInterval(), getGravityInterval(15));
 
   restart();
   update(0); update(300);
@@ -185,9 +185,9 @@ run(`
   assert.equal(dropElapsed, 300);
   pauseButton.click({ timeStamp: 20000 });
   assert.equal(paused, false);
-  update(20000); update(20399);
+  update(20000); update(20699);
   assert.equal(piece.y, SPAWN_Y + 0);
-  update(20400);
+  update(20700);
   assert.equal(piece.y, SPAWN_Y + 1);
 
   board[HIDDEN_ROWS + 0].fill(1, 3, 7); board[HIDDEN_ROWS + 1].fill(1, 3, 7);
@@ -246,13 +246,13 @@ review(`
   restart();
   level = 11;
   update(0);
-  for (let time = 16; time <= 1008; time += 16) update(time);
-  assert.equal(piece.y, SPAWN_Y + 10);
-  assert.equal(dropElapsed, 8);
+  for (let time = 16; time <= 400; time += 16) update(time);
+  assert.equal(piece.y, SPAWN_Y + Math.floor(400 / getGravityInterval(11)));
+  assert.ok(Math.abs(dropElapsed - (400 % getGravityInterval(11))) < 0.001);
   restart();
   update(0); update(1450);
-  assert.equal(piece.y, SPAWN_Y + 2);
-  assert.equal(dropElapsed, 50);
+  assert.equal(piece.y, SPAWN_Y + 1);
+  assert.equal(dropElapsed, 450);
 `);
 console.log("PASS: shortcut isolation and elapsed-time accuracy.");
 
@@ -318,12 +318,15 @@ review(`
   update(20000);
   assert.equal(dropElapsed, 300);
 
-  // 長いフレームでも、新しいブロックへ前の時間を持ち越さない。
+  // 長いフレームの余りを、着地直後のLock Delayへ持ち越さない。
   restart();
   update(0); update(100000);
-  assert.equal(piece.y, SPAWN_Y + 0);
+  assert.ok(isGrounded());
   assert.equal(dropElapsed, 0);
-  assert.equal(board.flat().filter(Boolean).length, 4);
+  assert.equal(lockElapsed, 0);
+  assert.equal(board.flat().filter(Boolean).length, 0);
+  update(100499); assert.equal(board.flat().filter(Boolean).length, 0);
+  update(100500); assert.equal(board.flat().filter(Boolean).length, 4);
 `);
 console.log("PASS: all-piece rotation, 20,000 operations, ghost/drop agreement, board invariants and timer boundaries.");
 
@@ -351,12 +354,12 @@ lockTests(`
   // 自動落下で着地した時点から500msを測る。
   floorPiece();
   piece.y = HIDDEN_ROWS + 17;
-  update(700);
+  update(1000);
   assert.equal(piece.y, HIDDEN_ROWS + 18);
   assert.equal(lockElapsed, 0);
-  update(1199);
+  update(1499);
   assert.equal(occupied(), 0);
-  update(1200);
+  update(1500);
   assert.equal(occupied(), 4);
 
   floorPiece();
@@ -405,15 +408,15 @@ lockTests(`
   update(0); update(400);
   key("ArrowRight");
   assert.equal(isGrounded(), false);
-  update(1100);
+  update(1400);
   assert.equal(piece.y, HIDDEN_ROWS + 9);
   assert.equal(lockElapsed, 400);
-  update(7400);
+  update(10400);
   assert.equal(piece.y, HIDDEN_ROWS + 18);
   assert.equal(lockResets, 15);
-  update(7499);
+  update(10499);
   assert.equal(occupied(), 1);
-  update(7500);
+  update(10500);
   assert.equal(occupied(), 5);
 
   // 回転によって足場を離れた場合も落下を再開。
@@ -428,7 +431,7 @@ lockTests(`
   assert.equal(isGrounded(), false);
   assert.equal(lockResets, 1);
   assert.equal(lockElapsed, 0);
-  update(1100);
+  update(1400);
   assert.equal(piece.y, HIDDEN_ROWS + 7);
 
   floorPiece();
@@ -761,11 +764,12 @@ timingTests(`
 
   // 高レベルでは入力前の自動落下を先に処理する。
   restart(); spawnPiece(1); level = 11; update(0);
+  const highGravity = getGravityInterval(11);
   timedKey("ArrowLeft", 490);
-  assert.equal(piece.y, SPAWN_Y + 4);
-  assert.equal(dropElapsed, 90);
-  update(500); assert.equal(piece.y, SPAWN_Y + 5);
-  assert.equal(dropElapsed, 0);
+  assert.equal(piece.y, SPAWN_Y + Math.floor(490 / highGravity));
+  assert.ok(Math.abs(dropElapsed - (490 % highGravity)) < 0.001);
+  update(500); assert.equal(piece.y, SPAWN_Y + Math.floor(500 / highGravity));
+  assert.ok(Math.abs(dropElapsed - (500 % highGravity)) < 0.001);
 
   nearFloor(); level = 11;
   timedKey("ArrowDown", 90); update(100);
@@ -824,8 +828,8 @@ heldInputTests(`
   update(40); assert.equal(piece.y, SPAWN_Y + 2);
   update(80); assert.equal(piece.y, SPAWN_Y + 3); assert.equal(score,3);
   release("ArrowDown",81);
-  update(780); assert.equal(piece.y, SPAWN_Y + 3);
-  update(781); assert.equal(piece.y, SPAWN_Y + 4); assert.equal(score,3);
+  update(1080); assert.equal(piece.y, SPAWN_Y + 3);
+  update(1081); assert.equal(piece.y, SPAWN_Y + 4); assert.equal(score,3);
   fresh(); level=11; press("ArrowDown",0);
   for(let t=10;t<=200;t+=10) { press("ArrowDown",t,true); update(t); }
   assert.equal(piece.y, SPAWN_Y + 6); assert.equal(score,6);
@@ -898,8 +902,10 @@ slowFrameTests(`
     assert.equal(piece.y,SPAWN_Y+1+t/300);
     assert.equal(score,piece.y-SPAWN_Y); // 通常落下との二重実行なし。
   }
-  release("ArrowDown",3000); update(3099); assert.equal(piece.y, SPAWN_Y + 11);
-  update(3100); assert.equal(piece.y, SPAWN_Y + 12); assert.equal(score,11);
+  release("ArrowDown",3000);
+  const resumedGravity = getGravityInterval(11);
+  update(3000 + resumedGravity - 0.001); assert.equal(piece.y, SPAWN_Y + 11);
+  update(3000 + resumedGravity); assert.equal(piece.y, SPAWN_Y + 12); assert.equal(score,11);
   for (const code of ["ArrowLeft","ArrowRight"]) {
     fresh(); const direction=code==="ArrowLeft"?-1:1;
     press(code,0);
@@ -1332,7 +1338,7 @@ levelScoreTests(`
     prepareClear(lines,startLevel,startLines); lockPiece();
     assert.equal(score,points); assert.equal(totalLines,newLines); assert.equal(level,newLevel);
     assert.equal(Number(levelElement.textContent),newLevel);
-    assert.equal(dropInterval(),newLevel===2 ? 640 : 580);
+    assert.ok(Math.abs(getGravityInterval() - (newLevel === 2 ? 793 : 618)) < 1);
   }
   // 高Levelのドロップ得点と0行固定。倍率は適用しない。
   restart(); spawnPiece(1); level=5; totalLines=40;
@@ -1412,7 +1418,7 @@ spinTests(`
   }
   setupSpin(0,[]); stepDown(true);
   assert.equal(lastRotationKick,null); assert.equal(score,1);
-  setupSpin(0,[]); update(0); update(700);
+  setupSpin(0,[]); update(0); update(1000);
   assert.equal(piece.y,36); assert.equal(lastRotationKick,null); assert.equal(score,0);
   setupSpin(0,[]); const distance=ghostY()-piece.y;
   assert.ok(distance>0); hardDrop();
@@ -1881,3 +1887,77 @@ uiTests(b2bFixtures + `
   advanceDisplayTime(1200); assert.equal(clearEventElement.textContent,"");
 `);
 console.log("PASS: LINES, independent B2B/Combo display, full/mini feedback, replacement/expiry, pause, restart and game over without score/timer changes.");
+
+const gravityTests = createGame();
+gravityTests(`
+  function closeTo(actual, expected, tolerance = 1) {
+    assert.ok(Math.abs(actual - expected) <= tolerance, actual + " is not close to " + expected);
+  }
+  closeTo(getGravityInterval(1), 1000);
+  closeTo(getGravityInterval(5), 355);
+  closeTo(getGravityInterval(10), 64);
+  closeTo(getGravityInterval(15), 7);
+  for (let currentLevel = 1; currentLevel < 15; currentLevel++) {
+    assert.ok(getGravityInterval(currentLevel + 1) < getGravityInterval(currentLevel));
+  }
+  assert.equal(getGravityInterval(16), getGravityInterval(15));
+  assert.equal(getGravityInterval(30), getGravityInterval(15));
+
+  // 60fps相当の1フレームでも、高Levelなら複数マスを1マスずつ進める。
+  restart(); spawnPiece(1); level = 15; update(0);
+  const fastInterval = getGravityInterval();
+  const startY = piece.y;
+  update(16.7);
+  assert.ok(piece.y - startY >= 2);
+  assert.ok(!collides(piece.shape, piece.x, piece.y));
+
+  // 床へ着地したフレームの余りはLock Delayへ入れない。
+  restart(); spawnPiece(1); level = 15; piece.y = TOTAL_ROWS - 3; update(0);
+  const landingTime = fastInterval * 10;
+  update(landingTime);
+  assert.equal(piece.y, TOTAL_ROWS - 2);
+  assert.ok(isGrounded());
+  assert.equal(lockElapsed, 0);
+  assert.equal(board.flat().filter(Boolean).length, 0);
+  update(landingTime + 499); assert.equal(board.flat().filter(Boolean).length, 0);
+  update(landingTime + 500); assert.equal(board.flat().filter(Boolean).length, 4);
+
+  // 固定ブロックも飛び越えない。
+  restart(); level = 15;
+  piece = { rotation: 0, shape: [[1]], x: 4, y: 30, color: 1 };
+  board[32][4] = 7; update(0); update(fastInterval * 10);
+  assert.equal(piece.y, 31);
+  assert.ok(isGrounded());
+  assert.equal(lockElapsed, 0);
+  assert.equal(board[32][4], 7);
+
+  // 同じ300msなら、更新頻度が違っても同じ距離と余りになる。
+  function simulateFrames(frameLength) {
+    restart(); spawnPiece(1); level = 10; update(0);
+    let time = 0;
+    while (time < 300) {
+      time = Math.min(300, time + frameLength);
+      update(time);
+    }
+    return { y: piece.y, remainder: dropElapsed };
+  }
+  const frameResults = [16.7, 50, 100, 300].map(simulateFrames);
+  for (const result of frameResults) {
+    assert.equal(result.y, frameResults[0].y);
+    closeTo(result.remainder, frameResults[0].remainder, 0.001);
+  }
+
+  // Pause時間を復帰後のGravityへ加算しない。
+  restart(); spawnPiece(1); level = 15; update(0); update(fastInterval * 2);
+  const pausedY = piece.y;
+  togglePause(fastInterval * 2); update(10000);
+  assert.equal(piece.y, pausedY);
+  togglePause(20000);
+  update(20000 + fastInterval - 0.001); assert.equal(piece.y, pausedY);
+  update(20000 + fastInterval + 0.001); assert.equal(piece.y, pausedY + 1);
+
+  // RestartはLevel 1と空のGravity accumulatorへ戻す。
+  level = 15; dropElapsed = 5; restart();
+  assert.equal(level, 1); assert.equal(dropElapsed, 0); assert.equal(getGravityInterval(), 1000);
+`);
+console.log("PASS: nonlinear Marathon gravity values/cap, multi-row frames, collision safety, lock boundary, frame-rate consistency, pause and restart.");

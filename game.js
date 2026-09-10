@@ -12,7 +12,6 @@ const T_SPIN_MINI_SCORES = [100, 200, 400];
 // piece.yとboardは内部座標。Spawn枠は表示最上段の1行上。
 const SPAWN_Y = HIDDEN_ROWS - 1;
 const CELL = 30;
-const DROP_INTERVAL = 700;
 const LOCK_DELAY = 500;
 const MAX_LOCK_RESETS = 15;
 const HORIZONTAL_DAS = 170;
@@ -183,8 +182,9 @@ function hold() {
   holdUsed = true;
 }
 
-function dropInterval() {
-  return Math.max(100, DROP_INTERVAL - (level - 1) * 60);
+function getGravityInterval(currentLevel = level) {
+  const gravityLevel = Math.min(currentLevel, 15);
+  return Math.pow(0.8 - ((gravityLevel - 1) * 0.007), gravityLevel - 1) * 1000;
 }
 
 function togglePause(time = performance.now()) {
@@ -551,13 +551,16 @@ function advanceSimulation(time) {
         break;
       }
       if (heldKeys.ArrowDown) break;
-      const elapsed = Math.min(remaining, dropInterval() - dropElapsed);
+      const gravityInterval = getGravityInterval();
+      const elapsed = Math.min(remaining, gravityInterval - dropElapsed);
       dropElapsed += elapsed;
       remaining -= elapsed;
-      if (dropElapsed >= dropInterval()) {
+      if (dropElapsed >= gravityInterval) {
         dropElapsed = 0;
         stepDown();
         changed = true;
+        // Gravityで着地したフレームの余りをLock Delayへ流さない。
+        if (isGrounded()) break;
       }
     }
     if (changed) draw();
