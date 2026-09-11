@@ -122,6 +122,10 @@ const resultsPerfectClearsElement = document.getElementById("results-perfect-cle
 const resultsMaxComboElement = document.getElementById("results-max-combo");
 const boardStageElement = document.querySelector(".board-stage");
 const gameUiElement = document.querySelector("main");
+const startOverlay = document.getElementById("start-overlay");
+const startButton = document.getElementById("start-game");
+const startSettingsButton = document.getElementById("start-settings");
+const startHighScoreElement = document.getElementById("start-high-score");
 const settingsOverlay = document.getElementById("settings-overlay");
 const settingsButton = document.getElementById("open-settings");
 const closeSettingsButton = document.getElementById("close-settings");
@@ -165,6 +169,7 @@ let score;
 let gameOver;
 let marathonComplete;
 let paused;
+let startScreenOpen = true;
 // Manual Pauseとは分けて、windowが非アクティブな間だけsimulationを止める。
 let focusSuspended = false;
 let nextQueue = [];
@@ -308,7 +313,7 @@ function updateSettingsUI() {
 function openSettings(time = performance.now()) {
   if (settingsOpen) return;
   settingsWasPaused = paused;
-  if (!gameOver && !marathonComplete && !paused) {
+  if (!startScreenOpen && !gameOver && !marathonComplete && !paused) {
     advanceTime(time);
     if (!gameOver && !marathonComplete) paused = true;
   }
@@ -317,8 +322,9 @@ function openSettings(time = performance.now()) {
   settingsOpen = true;
   updateSettingsUI();
   gameUiElement.inert = true;
+  startOverlay.inert = true;
   settingsOverlay.hidden = false;
-  if (!gameOver && !marathonComplete) {
+  if (!startScreenOpen && !gameOver && !marathonComplete) {
     statusElement.textContent = "設定中";
     pauseButton.textContent = "再開（P）";
   }
@@ -328,17 +334,51 @@ function openSettings(time = performance.now()) {
 function closeSettings() {
   if (!settingsOpen) return;
   settingsOverlay.hidden = true;
-  gameUiElement.inert = false;
+  gameUiElement.inert = startScreenOpen;
+  startOverlay.inert = false;
   settingsOpen = false;
   clearHeldKeys();
   lastTime = null;
-  if (!gameOver && !marathonComplete) {
+  if (!startScreenOpen && !gameOver && !marathonComplete) {
     paused = settingsWasPaused;
     statusElement.textContent = paused ? "一時停止中" : "プレイ中";
     pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
   }
   settingsWasPaused = false;
-  settingsButton.focus?.();
+  (startScreenOpen ? startSettingsButton : settingsButton).focus?.();
+}
+
+function keepStartFocus(event) {
+  if (event.code !== "Tab") return;
+  const first = startButton;
+  const last = startSettingsButton;
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  } else if (document.activeElement !== first && document.activeElement !== last) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+}
+
+function showStartScreen() {
+  startScreenOpen = true;
+  startHighScoreElement.textContent = highScore;
+  startOverlay.hidden = false;
+  gameUiElement.inert = true;
+  clearHeldKeys();
+  lastTime = null;
+  statusElement.textContent = "開始待ち";
+  startButton.focus?.();
+}
+
+function startGame() {
+  selectedStartLevel = 1;
+  isQaRun = false;
+  restart();
 }
 
 function keepSettingsFocus(event) {
@@ -888,6 +928,10 @@ function restart() {
   clearSpinFeedback();
   clearEffects();
   hideResults();
+  startScreenOpen = false;
+  startOverlay.hidden = true;
+  startOverlay.inert = settingsOpen;
+  gameUiElement.inert = settingsOpen || qaOpen;
   comboCount = -1;
   backToBackActive = false;
   lastLockResult = null;
@@ -935,6 +979,10 @@ document.addEventListener("keydown", event => {
     }
     return;
   }
+  if (startScreenOpen) {
+    keepStartFocus(event);
+    return;
+  }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyR", "KeyC", "KeyP", "KeyZ"].includes(event.code)) return;
   event.preventDefault();
@@ -977,6 +1025,8 @@ document.addEventListener("keydown", event => {
 });
 document.getElementById("restart").addEventListener("click", () => { enableAudio(); restart(); });
 document.getElementById("play-again").addEventListener("click", () => { enableAudio(); restart(); });
+startButton.addEventListener("click", () => { enableAudio(); startGame(); });
+startSettingsButton.addEventListener("click", event => openSettings(event.timeStamp));
 settingsButton.addEventListener("click", event => openSettings(event.timeStamp));
 closeSettingsButton.addEventListener("click", closeSettings);
 resetSettingsButton.addEventListener("click", () => {
@@ -1040,7 +1090,7 @@ window.addEventListener("focus", () => {
 });
 
 function canAdvanceSimulation() {
-  return !paused && !settingsOpen && !qaOpen && !focusSuspended
+  return !startScreenOpen && !paused && !settingsOpen && !qaOpen && !focusSuspended
     && !document.hidden && !gameOver && !marathonComplete;
 }
 
@@ -1136,4 +1186,5 @@ function update(time) {
 
 updateSettingsUI();
 restart();
+showStartScreen();
 requestAnimationFrame(update);

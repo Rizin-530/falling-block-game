@@ -2181,6 +2181,7 @@ resultsTests(`
     assert.equal(Number(resultsHighScoreElement.textContent), expectedHighScore);
     assert.equal(resultsDebugElement.textContent, debug);
   }
+  restart();
 
   // 通常プレイとPauseではResultsを表示しない。
   assert.equal(resultsElement.hidden, true);
@@ -2638,6 +2639,7 @@ console.log("PASS: Soft Drop selects the faster interval, rejects stale piece de
 const qaStorage = { "falling-block-high-score": "500" };
 const qaTests = createGame(qaStorage);
 qaTests(`
+  restart();
   // Panelは既存Pause・inert・focus循環を使い、背景入力を遮断する。
   const qaStartX = piece.x; press("ArrowRight", 0); openQa(0);
   assert.equal(qaOpen, true); assert.equal(paused, true); assert.equal(gameUiElement.inert, true);
@@ -2864,3 +2866,55 @@ focusTests(`
   assert.equal(runStats.activePlayMs, 1000);
 `);
 console.log("PASS: window focus suspension, input clearing, timestamp resync, lock delay, modal/terminal preservation and restart safety.");
+
+const startScreenStorage = { "falling-block-high-score": "12345" };
+const startScreenTests = createGame(startScreenStorage);
+startScreenTests(`
+  // 初期ロードは開始前。長時間経過やgameplay keyでも背景Runを進めない。
+  assert.equal(startScreenOpen, true); assert.equal(startOverlay.hidden, false);
+  assert.equal(gameUiElement.inert, true); assert.equal(document.activeElement, startButton);
+  assert.equal(startHighScoreElement.textContent, 12345);
+  const initialPiece = JSON.stringify(piece); const initialBoard = JSON.stringify(board);
+  advanceTime(30000);
+  for (const code of ["ArrowLeft", "ArrowRight", "ArrowUp", "KeyZ", "ArrowDown", "Space", "KeyC", "KeyP", "KeyR"]) key(code);
+  assert.equal(JSON.stringify(piece), initialPiece); assert.equal(JSON.stringify(board), initialBoard);
+  assert.equal(runStats.activePlayMs, 0); assert.equal(lockElapsed, 0); assert.equal(score, 0);
+
+  // TabはSTARTとSETTINGSだけを循環し、blur/hiddenから戻っても開始前を維持する。
+  key("Tab", false, { shiftKey:true }); assert.equal(document.activeElement, startSettingsButton);
+  key("Tab"); assert.equal(document.activeElement, startButton);
+  emit("blur"); emit("focus"); document.hidden = true; emit("visibilitychange");
+  document.hidden = false; emit("visibilitychange"); advanceTime(60000);
+  assert.equal(startScreenOpen, true); assert.equal(runStats.activePlayMs, 0);
+
+  // START画面からSettingsを閉じても開始せず、設定値とfocusを維持する。
+  startSettingsButton.click(); assert.equal(settingsOpen, true); assert.equal(startOverlay.inert, true);
+  changeSetting("softDropMs", 55); advanceTime(90000); closeSettings();
+  assert.equal(startScreenOpen, true); assert.equal(settingsOpen, false); assert.equal(paused, false);
+  assert.equal(gameUiElement.inert, true); assert.equal(document.activeElement, startSettingsButton);
+  assert.equal(settings.softDropMs, 55); assert.equal(runStats.activePlayMs, 0);
+
+  // STARTは過去のDebug/QA選択を捨て、Level 1のfresh Normal Runを作る。
+  selectedStartLevel = 15; isQaRun = true; runStats.tetrises = 4; score = 99;
+  const beforeStartPiece = piece; startButton.click();
+  assert.equal(startScreenOpen, false); assert.equal(startOverlay.hidden, true); assert.equal(gameUiElement.inert, false);
+  assert.equal(selectedStartLevel, 1); assert.equal(isQaRun, false); assert.equal(level, 1); assert.equal(totalLines, 0); assert.equal(score, 0);
+  assert.deepEqual(runStats, createEmptyRunStats()); assert.notEqual(piece, beforeStartPiece); assert.equal(lastTime, null);
+  advanceTime(90000); assert.equal(runStats.activePlayMs, 0); const startedY = piece.y;
+  advanceTime(91000); assert.equal(runStats.activePlayMs, 1000); assert.equal(piece.y, startedY + 1);
+
+  // STARTをSpace相当のbutton clickで起動しても、そのkeydownはHard Dropへ漏れない。
+  showStartScreen(); const spaceStartPiece = piece; press("Space", 92000); startButton.click(); release("Space", 92000);
+  assert.equal(startScreenOpen, false); assert.equal(piece.y, SPAWN_Y); assert.notEqual(piece, spaceStartPiece);
+  assert.equal(score, 0); assert.equal(board.flat().filter(Boolean).length, 0);
+
+  // 開始後のRestart / PLAY AGAINはSTART画面を挟まず従来どおりfresh Runへ入る。
+  restart(); assert.equal(startScreenOpen, false);
+  endGame(); document.getElementById("play-again").click();
+  assert.equal(startScreenOpen, false); assert.equal(gameOver, false); assert.equal(resultsElement.hidden, true);
+
+  // QA fixture内のrestartはpanelの背景inertを解除しない。
+  openQa(93000); markQaRun(); restart(); assert.equal(qaOpen, true); assert.equal(gameUiElement.inert, true); closeQa();
+  assert.equal(localStorage.getItem("startScreenOpen"), null); assert.equal(localStorage.getItem("gameStarted"), null);
+`);
+console.log("PASS: initial Start Screen, simulation/input gating, Settings return, Normal Run start, timestamp reset, focus trap and lifecycle regressions.");
