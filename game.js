@@ -165,6 +165,8 @@ let score;
 let gameOver;
 let marathonComplete;
 let paused;
+// Manual Pauseとは分けて、windowが非アクティブな間だけsimulationを止める。
+let focusSuspended = false;
 let nextQueue = [];
 let heldType;
 let holdUsed;
@@ -936,6 +938,7 @@ document.addEventListener("keydown", event => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyR", "KeyC", "KeyP", "KeyZ"].includes(event.code)) return;
   event.preventDefault();
+  if (focusSuspended) return;
   enableAudio();
   if (event.repeat || heldKeys[event.code]) return;
   if (event.code === "KeyR") {
@@ -1026,7 +1029,20 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) clearHeldKeys();
   lastTime = null;
 });
-window.addEventListener("blur", () => { clearHeldKeys(); lastTime = null; });
+window.addEventListener("blur", () => {
+  focusSuspended = true;
+  clearHeldKeys();
+  lastTime = null;
+});
+window.addEventListener("focus", () => {
+  focusSuspended = false;
+  lastTime = null;
+});
+
+function canAdvanceSimulation() {
+  return !paused && !settingsOpen && !qaOpen && !focusSuspended
+    && !document.hidden && !gameOver && !marathonComplete;
+}
 
 function advanceTime(time) {
   if (heldKeys.ArrowDown && !softDropUsesRepeat()) {
@@ -1041,7 +1057,7 @@ function advanceTime(time) {
     if (activeDirection && nextHorizontalTime <= time) nextHorizontalTime = time;
     if (softDropUsesRepeat() && nextSoftDropTime <= time) nextSoftDropTime = time;
   }
-  while (!paused && !gameOver && !marathonComplete && !document.hidden) {
+  while (canAdvanceSimulation()) {
     const due = Math.min(nextHorizontalTime, nextSoftDropTime);
     if (due > time) break;
     const pieceBeforeSimulation = piece;
@@ -1071,7 +1087,7 @@ function advanceSimulation(time) {
   if (lastTime === null) lastTime = time;
   // 同じフレーム内で入力が先に処理されても時間を巻き戻さない。
   time = Math.max(time, lastTime);
-  if (!gameOver && !marathonComplete && !paused && !document.hidden) {
+  if (canAdvanceSimulation()) {
     const simulationElapsed = time - lastTime;
     let activeElapsed = simulationElapsed;
     let playTimeAlreadyAdded = 0;

@@ -2804,3 +2804,63 @@ statsTests(`
   assert.equal(localStorage.getItem("runStats"), null);
 `);
 console.log("PASS: Run statistics counts, active play time, pause/modal/terminal exclusion, Results snapshot and Run lifecycle resets.");
+
+const focusTests = createGame();
+focusTests(`
+  // Playing中のblurはGravity・Lock Delay・PLAY TIMEをすべて停止する。
+  restart(); lastTime = 0; advanceTime(1000);
+  const playingY = piece.y; const playingDrop = dropElapsed; const playingTime = runStats.activePlayMs;
+  emit("blur"); advanceTime(11000);
+  assert.equal(focusSuspended, true); assert.equal(piece.y, playingY);
+  assert.equal(dropElapsed, playingDrop); assert.equal(runStats.activePlayMs, playingTime);
+
+  // focus後の最初のframeは再同期だけで、blur中の10秒を処理しない。
+  emit("focus"); advanceTime(11000);
+  assert.equal(focusSuspended, false); assert.equal(piece.y, playingY);
+  assert.equal(runStats.activePlayMs, playingTime);
+  advanceTime(13000); assert.equal(runStats.activePlayMs, playingTime + 2000);
+
+  // held inputとrepeat deadlineはblurで消え、focusだけでは再発火しない。
+  restart(); press("ArrowRight", 0); press("ArrowDown", 0);
+  emit("blur"); const inputX = piece.x; const inputY = piece.y; const inputScore = score;
+  assert.equal(activeDirection, null); assert.equal(nextHorizontalTime, Infinity);
+  assert.equal(nextSoftDropTime, Infinity); assert.equal(softDropScheduledPiece, null);
+  emit("focus"); advanceTime(10000);
+  assert.equal(piece.x, inputX); assert.equal(piece.y, inputY); assert.equal(score, inputScore);
+
+  // 接地後400msを維持し、blur時間では固定せず、復帰後の残り100msで固定する。
+  restart(); piece = { shape:[[1]], rotation:0, x:4, y:TOTAL_ROWS-1, color:3 };
+  lastTime = 0; advanceTime(400); assert.equal(lockElapsed, 400);
+  const groundedPiece = piece; emit("blur"); advanceTime(10400);
+  assert.equal(piece, groundedPiece); assert.equal(lockElapsed, 400);
+  emit("focus"); advanceTime(10400); advanceTime(10499); assert.equal(piece, groundedPiece);
+  advanceTime(10500); assert.notEqual(piece, groundedPiece);
+
+  // Manual Pause・Settings・QA・terminal状態はfocusで解除しない。
+  restart(); togglePause(0); emit("blur"); emit("focus"); assert.equal(paused, true);
+  togglePause(0); openSettings(0); emit("blur"); emit("focus"); assert.equal(settingsOpen, true); assert.equal(paused, true); closeSettings();
+  openQa(0); emit("blur"); emit("focus"); assert.equal(qaOpen, true); assert.equal(paused, true); closeQa();
+  restart(); endGame(); emit("blur"); emit("focus"); assert.equal(gameOver, true); assert.equal(resultsElement.hidden, false);
+  restart(); completeMarathon(); emit("blur"); emit("focus"); assert.equal(marathonComplete, true); assert.equal(resultsElement.hidden, false);
+
+  // blurとhiddenが重なっても安全で、event順序に関係なく巨大deltaを作らない。
+  restart(); lastTime = 0; advanceTime(100); const overlapTime = runStats.activePlayMs;
+  emit("blur"); document.hidden = true; emit("visibilitychange"); advanceTime(10100);
+  document.hidden = false; emit("visibilitychange"); advanceTime(10100);
+  assert.equal(runStats.activePlayMs, overlapTime);
+  emit("focus"); advanceTime(10100); assert.equal(runStats.activePlayMs, overlapTime);
+
+  // focusがhidden解除より先でも停止を維持し、高Gravityでも復帰時に落下burstしない。
+  restart(); selectedStartLevel = 15; restart(); lastTime = 0; advanceTime(20);
+  const highGravityY = piece.y; emit("blur"); document.hidden = true; emit("visibilitychange");
+  emit("focus"); advanceTime(30020); assert.equal(piece.y, highGravityY);
+  document.hidden = false; emit("visibilitychange"); advanceTime(30020);
+  assert.equal(piece.y, highGravityY); assert.equal(runStats.activePlayMs, 20);
+
+  // blur中Restartでも裏では進まず、focus後に通常の新Runとして再開する。
+  emit("blur"); restart(); const restartedPiece = piece; advanceTime(20100);
+  assert.equal(piece, restartedPiece); assert.equal(runStats.activePlayMs, 0);
+  emit("focus"); advanceTime(20100); advanceTime(21100);
+  assert.equal(runStats.activePlayMs, 1000);
+`);
+console.log("PASS: window focus suspension, input clearing, timestamp resync, lock delay, modal/terminal preservation and restart safety.");
