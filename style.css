@@ -87,10 +87,6 @@ canvas { display: block; }
 .controls dt { display: flex; align-items: center; gap: 4px; }
 .controls dd { color: #b9bdc5; font-size: 11px; text-align: left; white-space: nowrap; }
 .controls kbd { display: inline-flex; align-items: center; justify-content: center; height: 24px; vertical-align: middle; }
-.debug-level { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #292b30; color: #969ba5; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; }
-.debug-level select { min-width: 58px; height: 28px; padding: 2px 6px; border: 1px solid #3b3e45; border-radius: 4px; background: #1c1e23; color: #e0e2e7; font: 11px system-ui, sans-serif; }
-.debug-level select:focus-visible { outline: 2px solid #8acfea; outline-offset: 2px; }
-.qa-open { width: 100%; min-height: 32px; margin-top: 8px; padding: 6px 10px; color: #b9bdc5; font-size: 10px; letter-spacing: 0.08em; }
 kbd { display: inline-block; min-width: 22px; padding: 3px 5px; border: 1px solid #3b3e45; border-radius: 4px; background: #1c1e23; color: #e0e2e7; font: 11px system-ui, sans-serif; text-align: center; }
 .actions { display: grid; gap: 8px; }
 button { min-height: 42px; padding: 10px 12px; border: 1px solid #3b3e45; border-radius: 6px; background: #24262c; color: #ededee; font: 12px system-ui, sans-serif; cursor: pointer; }
@@ -112,6 +108,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .start-actions { display: grid; gap: 8px; margin-top: 24px; }
 #start-game { background: #30343c; font-weight: 600; letter-spacing: 0.08em; }
 #start-settings { background: #121316; color: #b9bdc5; }
+.dev-tools-open { min-height: 32px; padding: 6px 10px; background: transparent; color: #858a94; font-size: 10px; letter-spacing: 0.08em; }
+.start-actions .dev-tools-open { margin-top: 4px; }
 .settings-overlay { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 20px; background: #08090be6; overflow-y: auto; }
 .settings-overlay[hidden] { display: none; }
 .settings-panel { width: min(100%, 380px); padding: 22px 20px; border: 1px solid #454850; border-radius: 8px; background: #121316; box-shadow: 0 12px 32px #0009; }
@@ -125,6 +123,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 .setting-toggle input { width: 18px; height: 18px; accent-color: #8acfea; }
 .settings-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 20px; }
 .qa-note, .qa-message { color: #969ba5; font-size: 10px; line-height: 1.6; }
+.dev-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid #292b30; }
+.dev-section h3 { margin: 0 0 10px; color: #adb1ba; font-size: 10px; letter-spacing: 0.1em; }
+.debug-start-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.debug-start-actions button { min-height: 34px; padding: 7px 5px; font-size: 10px; }
 .qa-actions { display: grid; gap: 8px; margin-top: 16px; }
 .qa-message { min-height: 16px; margin-top: 10px; color: #d5b3f2; }
 #qa-run { color: #d5b3f2; font-weight: 600; letter-spacing: 0.08em; }
@@ -169,7 +171,6 @@ body.effects-off .board-stage::after, body.effects-off #clear-event.event-pop, b
   .stat + .stat { padding-top: 10px; }
   .stat strong { margin-top: 2px; }
   .controls dl { margin-top: 10px; gap: 8px; }
-  .debug-level { margin-top: 8px; padding-top: 8px; }
   .results-card { padding: 14px; }
   .results-stats { gap: 6px 10px; margin-top: 10px; }
   .results-stats div { padding-top: 6px; }
@@ -189,6 +190,8 @@ body.effects-off .board-stage::after, body.effects-off #clear-event.event-pop, b
   .setting-row { margin-top: 9px; }
   .setting-toggle { margin-top: 10px; padding-top: 9px; }
   .settings-actions { margin-top: 12px; }
+  .dev-section { margin-top: 10px; padding-top: 9px; }
+  .qa-actions { margin-top: 10px; }
   .start-overlay { place-items: start center; padding: 10px; }
   .start-panel { padding: 20px 18px; }
   .start-mode { margin-top: 18px; }

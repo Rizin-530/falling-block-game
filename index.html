@@ -32,17 +32,6 @@
             <div><dt><kbd>P</kbd></dt><dd>一時停止・再開</dd></div>
             <div><dt><kbd>R</kbd></dt><dd>リスタート</dd></div>
           </dl>
-          <label class="debug-level">
-            <span>DEBUG LEVEL</span>
-            <select id="debug-level" aria-label="試遊開始レベル">
-              <option value="1">1</option>
-              <option value="5">5</option>
-              <option value="10">10</option>
-              <option value="13">13</option>
-              <option value="15">15</option>
-            </select>
-          </label>
-          <button id="open-qa" class="qa-open" type="button">QA ASSIST</button>
         </section>
       </aside>
       <section class="play-area" aria-label="ゲーム盤面">
@@ -94,6 +83,7 @@
           <button id="pause" type="button">一時停止（P）</button>
           <button id="restart" type="button">リスタート（R）</button>
           <button id="open-settings" type="button">SETTINGS</button>
+          <button id="open-dev-tools" class="dev-tools-open" type="button">DEV TOOLS</button>
         </div>
       </aside>
     </div>
@@ -109,6 +99,7 @@
       <div class="start-actions">
         <button id="start-game" type="button">START</button>
         <button id="start-settings" type="button">SETTINGS</button>
+        <button id="start-dev-tools" class="dev-tools-open" type="button">DEV TOOLS</button>
       </div>
     </div>
   </section>
@@ -142,14 +133,27 @@
   </section>
   <section id="qa-overlay" class="settings-overlay" role="dialog" aria-modal="true" aria-labelledby="qa-title" hidden>
     <div class="settings-panel qa-panel">
-      <h2 id="qa-title">QA ASSIST / TEST PANEL</h2>
-      <p class="qa-note">使用したゲームはHigh Score対象外になります。</p>
-      <div class="qa-actions">
-        <button id="qa-149" type="button">LOAD 149 → 150</button>
-        <button id="qa-clear" type="button">CLEAR BOARD</button>
-        <button id="qa-force-i" type="button">FORCE I</button>
-        <button id="qa-top-out" type="button">LOAD TOP OUT TEST</button>
-      </div>
+      <h2 id="qa-title">DEV TOOLS</h2>
+      <p class="qa-note">Debug / QA RunはHigh Score対象外です。</p>
+      <section class="dev-section" aria-labelledby="debug-start-title">
+        <h3 id="debug-start-title">DEBUG START</h3>
+        <div class="debug-start-actions">
+          <button type="button" data-debug-level="1">LEVEL 1</button>
+          <button type="button" data-debug-level="5">LEVEL 5</button>
+          <button type="button" data-debug-level="10">LEVEL 10</button>
+          <button type="button" data-debug-level="13">LEVEL 13</button>
+          <button type="button" data-debug-level="15">LEVEL 15</button>
+        </div>
+      </section>
+      <section class="dev-section" aria-labelledby="qa-assist-title">
+        <h3 id="qa-assist-title">QA ASSIST</h3>
+        <div class="qa-actions">
+          <button id="qa-149" type="button">LOAD 149 → 150</button>
+          <button id="qa-clear" type="button">CLEAR BOARD</button>
+          <button id="qa-force-i" type="button">FORCE I</button>
+          <button id="qa-top-out" type="button">LOAD TOP OUT TEST</button>
+        </div>
+      </section>
       <p id="qa-message" class="qa-message" role="status"></p>
       <div class="settings-actions">
         <button id="qa-reset" type="button">RESET QA RUN</button>

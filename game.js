@@ -106,7 +106,7 @@ const linesElement = document.getElementById("lines");
 const b2bElement = document.getElementById("b2b");
 const comboElement = document.getElementById("combo");
 const clearEventElement = document.getElementById("clear-event");
-const debugLevelSelect = document.getElementById("debug-level");
+const debugLevelButtons = [...document.querySelectorAll("[data-debug-level]")];
 const resultsElement = document.getElementById("results");
 const resultsTitleElement = document.getElementById("results-title");
 const resultsDebugElement = document.getElementById("results-debug");
@@ -138,7 +138,8 @@ const volumeInput = document.getElementById("setting-volume");
 const effectsInput = document.getElementById("setting-effects");
 const qaRunElement = document.getElementById("qa-run");
 const qaOverlay = document.getElementById("qa-overlay");
-const qaButton = document.getElementById("open-qa");
+const devToolsButton = document.getElementById("open-dev-tools");
+const startDevToolsButton = document.getElementById("start-dev-tools");
 const qaCloseButton = document.getElementById("qa-close");
 const qaResetButton = document.getElementById("qa-reset");
 const qaMessageElement = document.getElementById("qa-message");
@@ -311,7 +312,7 @@ function updateSettingsUI() {
 }
 
 function openSettings(time = performance.now()) {
-  if (settingsOpen) return;
+  if (settingsOpen || qaOpen) return;
   settingsWasPaused = paused;
   if (!startScreenOpen && !gameOver && !marathonComplete && !paused) {
     advanceTime(time);
@@ -351,14 +352,14 @@ function closeSettings() {
 function keepStartFocus(event) {
   if (event.code !== "Tab") return;
   const first = startButton;
-  const last = startSettingsButton;
+  const last = startDevToolsButton;
   if (event.shiftKey && document.activeElement === first) {
     event.preventDefault();
     last.focus();
   } else if (!event.shiftKey && document.activeElement === last) {
     event.preventDefault();
     first.focus();
-  } else if (document.activeElement !== first && document.activeElement !== last) {
+  } else if (![startButton, startSettingsButton, startDevToolsButton].includes(document.activeElement)) {
     event.preventDefault();
     (event.shiftKey ? last : first).focus();
   }
@@ -407,7 +408,7 @@ function changeSetting(name, value) {
 }
 
 function qaFocusableElements() {
-  return [...qaScenarioButtons, qaResetButton, qaCloseButton].filter(element => !element.disabled && !element.hidden);
+  return [...debugLevelButtons, ...qaScenarioButtons, qaResetButton, qaCloseButton].filter(element => !element.disabled && !element.hidden);
 }
 
 function keepQaFocus(event) {
@@ -429,9 +430,9 @@ function keepQaFocus(event) {
 }
 
 function openQa(time = performance.now()) {
-  if (qaOpen) return;
+  if (qaOpen || settingsOpen) return;
   qaWasPaused = paused;
-  if (!gameOver && !marathonComplete && !paused) {
+  if (!startScreenOpen && !gameOver && !marathonComplete && !paused) {
     advanceTime(time);
     if (!gameOver && !marathonComplete) paused = true;
   }
@@ -440,9 +441,10 @@ function openQa(time = performance.now()) {
   qaOpen = true;
   qaMessageElement.textContent = "";
   gameUiElement.inert = true;
+  startOverlay.inert = true;
   qaOverlay.hidden = false;
-  if (!gameOver && !marathonComplete) {
-    statusElement.textContent = "QA設定中";
+  if (!startScreenOpen && !gameOver && !marathonComplete) {
+    statusElement.textContent = "DEV TOOLS";
     pauseButton.textContent = "再開（P）";
   }
   qaCloseButton.focus?.();
@@ -451,17 +453,25 @@ function openQa(time = performance.now()) {
 function closeQa() {
   if (!qaOpen) return;
   qaOverlay.hidden = true;
-  gameUiElement.inert = false;
+  gameUiElement.inert = startScreenOpen;
+  startOverlay.inert = false;
   qaOpen = false;
   clearHeldKeys();
   lastTime = null;
-  if (!gameOver && !marathonComplete) {
+  if (!startScreenOpen && !gameOver && !marathonComplete) {
     paused = qaWasPaused;
     statusElement.textContent = paused ? "一時停止中" : "プレイ中";
     pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
   }
   qaWasPaused = false;
-  qaButton.focus?.();
+  (startScreenOpen ? startDevToolsButton : devToolsButton).focus?.();
+}
+
+function startDebugLevel(selectedLevel) {
+  selectedStartLevel = selectedLevel;
+  isQaRun = false;
+  restart();
+  closeQa();
 }
 
 function markQaRun() {
@@ -948,7 +958,6 @@ function restart() {
   totalLines = (selectedStartLevel - 1) * 10;
   level = selectedStartLevel;
   levelElement.textContent = level;
-  debugLevelSelect.value = String(selectedStartLevel);
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   bag = [];
@@ -983,6 +992,7 @@ document.addEventListener("keydown", event => {
     keepStartFocus(event);
     return;
   }
+  if (event.target?.closest?.("button, input, select")) return;
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyR", "KeyC", "KeyP", "KeyZ"].includes(event.code)) return;
   event.preventDefault();
@@ -1027,6 +1037,7 @@ document.getElementById("restart").addEventListener("click", () => { enableAudio
 document.getElementById("play-again").addEventListener("click", () => { enableAudio(); restart(); });
 startButton.addEventListener("click", () => { enableAudio(); startGame(); });
 startSettingsButton.addEventListener("click", event => openSettings(event.timeStamp));
+startDevToolsButton.addEventListener("click", event => openQa(event.timeStamp));
 settingsButton.addEventListener("click", event => openSettings(event.timeStamp));
 closeSettingsButton.addEventListener("click", closeSettings);
 resetSettingsButton.addEventListener("click", () => {
@@ -1041,8 +1052,12 @@ softDropInput.addEventListener("input", () => changeSetting("softDropMs", Number
 sfxInput.addEventListener("change", () => changeSetting("sfxEnabled", sfxInput.checked));
 volumeInput.addEventListener("input", () => changeSetting("sfxVolume", Number(volumeInput.value)));
 effectsInput.addEventListener("change", () => changeSetting("effectsEnabled", effectsInput.checked));
-qaButton.addEventListener("click", event => openQa(event.timeStamp));
+devToolsButton.addEventListener("click", event => openQa(event.timeStamp));
 qaCloseButton.addEventListener("click", closeQa);
+debugLevelButtons.forEach(button => button.addEventListener("click", () => {
+  enableAudio();
+  startDebugLevel(Number(button.dataset.debugLevel));
+}));
 document.getElementById("qa-149").addEventListener("click", loadQa149To150);
 document.getElementById("qa-clear").addEventListener("click", clearQaBoard);
 document.getElementById("qa-force-i").addEventListener("click", forceQaI);
@@ -1051,12 +1066,6 @@ qaResetButton.addEventListener("click", () => {
   isQaRun = false;
   restart();
   closeQa();
-});
-debugLevelSelect.addEventListener("change", () => {
-  enableAudio();
-  selectedStartLevel = Number(debugLevelSelect.value);
-  isQaRun = false;
-  restart();
 });
 document.addEventListener("keyup", event => {
   if (!(event.code in heldKeys) || !heldKeys[event.code]) return;

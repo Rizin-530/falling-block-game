@@ -57,6 +57,14 @@ function createGame(storage = {}) {
       addEventListener(name, listener) { listeners[name] = listener; },
       getElementById: mockElement,
       querySelector: mockElement,
+      querySelectorAll(selector) {
+        if (selector !== "[data-debug-level]") return [];
+        return [1, 5, 10, 13, 15].map(level => {
+          const element = mockElement(`debug-level-${level}`);
+          element.dataset = { debugLevel: String(level) };
+          return element;
+        });
+      },
     },
     localStorage: {
       getItem(key) { return storage[key] ?? null; },
@@ -83,7 +91,7 @@ function createGame(storage = {}) {
       // 既存ケースのkey()は単押し。長押しテストはpress/releaseで明示する。
       listeners.keyup({ code, timeStamp: vm.runInContext("lastTime ?? 0", sandbox), ...modifiers });
     },
-    press(code, timeStamp, repeat = false) { listeners.keydown({ code, timeStamp, repeat, preventDefault() {} }); },
+    press(code, timeStamp, repeat = false, modifiers = {}) { listeners.keydown({ code, timeStamp, repeat, preventDefault() {}, ...modifiers }); },
     release(code, timeStamp) { listeners.keyup({ code, timeStamp }); },
   };
   vm.createContext(sandbox);
@@ -1987,8 +1995,7 @@ const debugLevelStorage = { "falling-block-high-score": "500" };
 const debugLevelTests = createGame(debugLevelStorage);
 debugLevelTests(`
   function selectDebugLevel(value) {
-    debugLevelSelect.value = String(value);
-    debugLevelSelect.change();
+    startDebugLevel(value);
   }
   const expectedIntervals = { 1: 1000, 5: 355, 10: 64, 13: 18, 15: 7 };
   for (const selected of [1, 5, 10, 13, 15]) {
@@ -1998,7 +2005,6 @@ debugLevelTests(`
     assert.equal(totalLines, (selected - 1) * 10);
     assert.equal(Number(levelElement.textContent), selected);
     assert.equal(Number(linesElement.textContent), (selected - 1) * 10);
-    assert.equal(debugLevelSelect.value, String(selected));
     assert.ok(Math.abs(getGravityInterval() - expectedIntervals[selected]) < 1);
     assert.equal(score, 0);
     assert.equal(board.flat().filter(Boolean).length, 0);
@@ -2153,7 +2159,7 @@ marathonTests(`
 const debugMarathonStorage = { "falling-block-high-score": "500" };
 const debugMarathonTests = createGame(debugMarathonStorage);
 debugMarathonTests(`
-  debugLevelSelect.value = "15"; debugLevelSelect.change();
+  startDebugLevel(15);
   assert.equal(totalLines, 140); assert.equal(level, 15);
   totalLines = 149; level = 15;
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
@@ -2164,7 +2170,7 @@ debugMarathonTests(`
   assert.equal(highScore, 500); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "500");
   restart();
   assert.equal(marathonComplete, false); assert.equal(totalLines, 140); assert.equal(level, 15);
-  debugLevelSelect.value = "13"; debugLevelSelect.change();
+  startDebugLevel(13);
   assert.equal(marathonComplete, false); assert.equal(totalLines, 120); assert.equal(level, 13);
 `);
 console.log("PASS: Marathon Complete at 150+, final scoring/B2B/Combo, no spawn, frozen input, restart, Game Over separation and debug high-score isolation.");
@@ -2226,7 +2232,7 @@ resultsTests(`
 const debugResultsStorage = { "falling-block-high-score": "500" };
 const debugResultsTests = createGame(debugResultsStorage);
 debugResultsTests(`
-  debugLevelSelect.value = "15"; debugLevelSelect.change();
+  startDebugLevel(15);
   totalLines = 149; level = 15; addScore(2000);
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
   board[0][0] = 7;
@@ -2241,7 +2247,7 @@ debugResultsTests(`
   assert.equal(Number(resultsLevelElement.textContent), 16);
   assert.equal(Number(resultsHighScoreElement.textContent), 500);
   assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "500");
-  debugLevelSelect.value = "13"; debugLevelSelect.change();
+  startDebugLevel(13);
   assert.equal(resultsElement.hidden, true); assert.equal(level, 13); assert.equal(totalLines, 120);
 `);
 console.log("PASS: Results visibility, Game Over/Complete titles, final values, high score, debug label, frozen input and shared Restart paths.");
@@ -2335,7 +2341,7 @@ perfectClearTests(`
 const debugPerfectClearStorage = { "falling-block-high-score": "500" };
 const debugPerfectClearTests = createGame(debugPerfectClearStorage);
 debugPerfectClearTests(`
-  debugLevelSelect.value = "5"; debugLevelSelect.change();
+  startDebugLevel(5);
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
   board[TOTAL_ROWS - 1].fill(7);
   for (let x = 3; x < 7; x++) board[TOTAL_ROWS - 1][x] = 0;
@@ -2647,9 +2653,9 @@ qaTests(`
   press("ArrowLeft", 10); press("Space", 10); assert.equal(piece.x, qaStartX + 1);
   const pausedQaY = piece.y; const pausedQaLock = lockElapsed;
   advanceTime(1000); assert.equal(piece.y, pausedQaY); assert.equal(lockElapsed, pausedQaLock);
-  key("Tab"); assert.equal(document.activeElement, qaScenarioButtons[0]);
+  key("Tab"); assert.equal(document.activeElement, debugLevelButtons[0]);
   key("Tab", false, { shiftKey:true }); assert.equal(document.activeElement, qaCloseButton);
-  closeQa(); assert.equal(paused, false); assert.equal(gameUiElement.inert, false); assert.equal(document.activeElement, qaButton);
+  closeQa(); assert.equal(paused, false); assert.equal(gameUiElement.inert, false); assert.equal(document.activeElement, devToolsButton);
   advanceTime(5000); assert.equal(piece.y, pausedQaY); assert.equal(lockElapsed, pausedQaLock);
 
   // 149 Lines fixtureは通常SingleからCompleteへ進み、Perfect Clearにはしない。
@@ -2705,7 +2711,7 @@ qaTests(`
   openQa(80); qaResetButton.click(); assert.equal(isQaRun, false); assert.equal(qaRunElement.hidden, true);
   assert.equal(selectedStartLevel, 1); addScore(600); assert.equal(highScore, 600); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "600");
   openQa(90); clearQaBoard(); assert.equal(isQaRun, true);
-  debugLevelSelect.value = "1"; debugLevelSelect.change(); assert.equal(isQaRun, false); assert.equal(totalLines, 0);
+  startDebugLevel(1); assert.equal(isQaRun, false); assert.equal(totalLines, 0);
 
   // QA状態そのものをlocalStorageへ保存しない。
   assert.equal(localStorage.getItem("isQaRun"), null);
@@ -2795,7 +2801,7 @@ statsTests(`
   runStats.perfectClears = 1; openQa(0); loadQaTopOut(); assert.deepEqual(runStats, createEmptyRunStats());
 
   // Debug/QAやSFX/Effects設定に関係なくStatsは記録する。
-  debugLevelSelect.value = "5"; debugLevelSelect.change();
+  startDebugLevel(5);
   settings.sfxEnabled = false; settings.effectsEnabled = false;
   finishStatsEvent("NONE", 4); assert.equal(runStats.tetrises, 1);
   endGame(); assert.equal(resultsDebugElement.textContent, "DEBUG RUN");
@@ -2881,7 +2887,7 @@ startScreenTests(`
   assert.equal(runStats.activePlayMs, 0); assert.equal(lockElapsed, 0); assert.equal(score, 0);
 
   // TabはSTARTとSETTINGSだけを循環し、blur/hiddenから戻っても開始前を維持する。
-  key("Tab", false, { shiftKey:true }); assert.equal(document.activeElement, startSettingsButton);
+  key("Tab", false, { shiftKey:true }); assert.equal(document.activeElement, startDevToolsButton);
   key("Tab"); assert.equal(document.activeElement, startButton);
   emit("blur"); emit("focus"); document.hidden = true; emit("visibilitychange");
   document.hidden = false; emit("visibilitychange"); advanceTime(60000);
@@ -2918,3 +2924,57 @@ startScreenTests(`
   assert.equal(localStorage.getItem("startScreenOpen"), null); assert.equal(localStorage.getItem("gameStarted"), null);
 `);
 console.log("PASS: initial Start Screen, simulation/input gating, Settings return, Normal Run start, timestamp reset, focus trap and lifecycle regressions.");
+
+const devToolsHtml = fs.readFileSync(`${__dirname}/index.html`, "utf8");
+assert.ok(!devToolsHtml.includes('id="debug-level"'));
+assert.ok(!devToolsHtml.includes('id="open-qa"'));
+assert.ok(devToolsHtml.includes('id="open-dev-tools"'));
+assert.ok(devToolsHtml.includes('id="start-dev-tools"'));
+assert.ok(devToolsHtml.includes("DEBUG START") && devToolsHtml.includes("QA ASSIST"));
+
+const devToolsTests = createGame();
+devToolsTests(`
+  // 閲覧だけではRun種別を変えず、Playing時間・入力repeatを停止する。
+  startGame(); lastTime = 0; advanceTime(1000); const activeBeforeDev = runStats.activePlayMs;
+  press("ArrowRight", 1000); press("ArrowDown", 1000); const beforeOpen = { x:piece.x, y:piece.y, score };
+  devToolsButton.click();
+  assert.equal(qaOpen, true); assert.equal(paused, true); assert.equal(isQaRun, false); assert.equal(selectedStartLevel, 1);
+  assert.equal(gameUiElement.inert, true); assert.equal(document.activeElement, qaCloseButton);
+  assert.equal(activeDirection, null); assert.equal(nextHorizontalTime, Infinity); assert.equal(nextSoftDropTime, Infinity);
+  advanceTime(31000); assert.deepEqual({ x:piece.x, y:piece.y, score }, beforeOpen);
+  assert.equal(runStats.activePlayMs, activeBeforeDev);
+  closeQa(); assert.equal(paused, false); assert.equal(document.activeElement, devToolsButton);
+  advanceTime(31000); assert.equal(runStats.activePlayMs, activeBeforeDev);
+
+  // Manual PauseとStart ScreenはDEV TOOLSを閉じても元の状態を維持する。
+  togglePause(31000); openQa(31000); closeQa(); assert.equal(paused, true);
+  togglePause(31000); showStartScreen(); startDevToolsButton.click();
+  assert.equal(qaOpen, true); assert.equal(paused, false); assert.equal(startOverlay.inert, true);
+  closeQa(); assert.equal(startScreenOpen, true); assert.equal(gameUiElement.inert, true);
+  assert.equal(document.activeElement, startDevToolsButton);
+
+  // panel内だけでfocusを循環し、Escapeは背景操作へ漏らさず閉じる。
+  startDevToolsButton.click(); key("Tab"); assert.equal(document.activeElement, debugLevelButtons[0]);
+  key("Tab", false, { shiftKey:true }); assert.equal(document.activeElement, qaCloseButton);
+  key("Escape"); assert.equal(qaOpen, false); assert.equal(startScreenOpen, true);
+
+  // SpaceでPlaying側の入口を押してもHard Dropせず、button clickだけでpanelを開く。
+  startGame(); const spacePiece = piece; const spaceBoard = JSON.stringify(board); const spaceScore = score;
+  press("Space", 32000, false, { target:{ closest:() => devToolsButton } }); devToolsButton.click(); release("Space", 32000);
+  assert.equal(piece, spacePiece); assert.equal(JSON.stringify(board), spaceBoard); assert.equal(score, spaceScore); assert.equal(qaOpen, true);
+  closeQa();
+
+  // 既存のDebug開始処理を各buttonから1回だけ呼び、Level 1のNormal意味も維持する。
+  openQa(33000); debugLevelButtons[1].click(); assert.equal(level, 5); assert.equal(totalLines, 40);
+  assert.equal(selectedStartLevel, 5); assert.equal(isQaRun, false); assert.equal(qaOpen, false);
+  openQa(34000); debugLevelButtons[4].click(); assert.equal(level, 15); assert.equal(totalLines, 140);
+  openQa(35000); debugLevelButtons[0].click(); assert.equal(level, 1); assert.equal(totalLines, 0); assert.equal(isQaRun, false);
+
+  // Settingsと同時には開かず、blur/focusでも開いたpanelと停止状態を維持する。
+  openSettings(36000); openQa(36000); assert.equal(settingsOpen, true); assert.equal(qaOpen, false); closeSettings();
+  openQa(37000); emit("blur"); emit("focus"); advanceTime(67000);
+  assert.equal(qaOpen, true); assert.equal(paused, true); assert.equal(runStats.activePlayMs, 0); closeQa();
+
+  assert.equal(localStorage.getItem("devToolsOpen"), null); assert.equal(localStorage.getItem("qaOpen"), null);
+`);
+console.log("PASS: consolidated DEV TOOLS UI, modal timing/input safety, focus, Normal/Debug semantics and Settings/focus regressions.");
