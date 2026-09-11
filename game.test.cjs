@@ -2500,6 +2500,16 @@ settingsTests(`
   settings.sfxEnabled = true; settings.sfxVolume = 50; playSound("line"); assert.equal(oscillatorCount, 1); assert.ok(peaks.includes(0.0225));
   settings.sfxVolume = 0; playSound("line"); assert.equal(oscillatorCount, 1);
 
+  // AudioContextの再開が完了する前に発生した最初の効果音も捨てない。
+  let resumeCount = 0;
+  audioContext.state = "suspended";
+  audioContext.resume = () => ({
+    then(callback) { resumeCount++; audioContext.state = "running"; callback(); return this; },
+    catch() { return this; },
+  });
+  settings.sfxVolume = 100; playSound("line");
+  assert.equal(resumeCount, 1); assert.equal(oscillatorCount, 2);
+
   // Effects OFFは文字を消さず、CSS用classだけを切り替える。
   settings.effectsEnabled = false; updateSettingsUI();
   clearEventElement.textContent = "T-SPIN"; assert.ok(document.body.classList.contains("effects-off")); assert.equal(clearEventElement.textContent, "T-SPIN");
@@ -2700,3 +2710,97 @@ qaTests(`
   assert.equal(localStorage.getItem("qa-run"), null);
 `);
 console.log("PASS: QA Assist fixtures, normal completion/top-out paths, board/I tools, high-score exclusion, modal safety and normal-run recovery.");
+
+const statsTests = createGame();
+statsTests(`
+  function finishStatsEvent(spin, lines, perfectClear = false) {
+    board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    if (!perfectClear) board[0][0] = 7;
+    if (lines > 0) {
+      for (let y = TOTAL_ROWS - lines; y < TOTAL_ROWS; y++) board[y].fill(7, 0, COLS - 1);
+      piece = { shape:Array.from({ length:lines }, () => [1]), rotation:0, x:COLS-1, y:TOTAL_ROWS-lines, color:3 };
+    } else {
+      piece = { shape:[[1]], rotation:0, x:4, y:TOTAL_ROWS-1, color:3 };
+    }
+    detectTSpin = () => spin;
+    lockPiece();
+  }
+
+  // 新しいRunは全項目を0から始める。
+  assert.deepEqual(runStats, {
+    activePlayMs:0, tetrises:0, tSpins:0, tSpinMinis:0, perfectClears:0, maxCombo:0
+  });
+  assert.equal(formatPlayTime(0), "00:00");
+  assert.equal(formatPlayTime(62_000), "01:02");
+  assert.equal(formatPlayTime(3_735_000), "1:02:15");
+
+  // Tetrisは固定イベントごとに1回。Perfect Clearなら両方を独立して数える。
+  finishStatsEvent("NONE", 4); assert.equal(runStats.tetrises, 1); assert.equal(runStats.perfectClears, 0);
+  finishStatsEvent("NONE", 4, true); assert.equal(runStats.tetrises, 2); assert.equal(runStats.perfectClears, 1);
+
+  // Full/Miniは既存分類の片方だけを数え、line数では増幅しない。0-lineも数える。
+  finishStatsEvent("T_SPIN", 0); assert.equal(runStats.tSpins, 1); assert.equal(runStats.tSpinMinis, 0);
+  finishStatsEvent("T_SPIN", 2); assert.equal(runStats.tSpins, 2); assert.equal(runStats.tSpinMinis, 0);
+  finishStatsEvent("T_SPIN_MINI", 1); assert.equal(runStats.tSpins, 2); assert.equal(runStats.tSpinMinis, 1);
+  finishStatsEvent("NONE", 1, true); assert.equal(runStats.perfectClears, 2);
+
+  // HUDと同じCombo値の最大だけを保持し、break後に小さい値へ戻さない。
+  restart(); finishStatsEvent("NONE", 1); finishStatsEvent("NONE", 1); finishStatsEvent("NONE", 1);
+  assert.equal(comboCount, 2); assert.equal(runStats.maxCombo, 2);
+  finishStatsEvent("NONE", 0); assert.equal(comboCount, -1); assert.equal(runStats.maxCombo, 2);
+  finishStatsEvent("NONE", 1); assert.equal(runStats.maxCombo, 2);
+
+  // 最終TetrisをcountしてからComplete Resultsのsnapshotを作る。
+  restart(); totalLines = 146; level = 15; finishStatsEvent("NONE", 4);
+  assert.equal(marathonComplete, true); assert.equal(runStats.tetrises, 1);
+  assert.equal(resultsStatsSnapshot.tetrises, 1); assert.equal(resultsTetrisesElement.textContent, 1);
+
+  // Pause・Settings・QA panelの時間は除外し、activeな低FPS時間はdt全体を数える。
+  restart(); lastTime = 0; advanceTime(1000); assert.equal(runStats.activePlayMs, 1000);
+  togglePause(1000); advanceTime(6000); assert.equal(runStats.activePlayMs, 1000);
+  togglePause(6000); advanceTime(8000); assert.equal(runStats.activePlayMs, 3000);
+  openSettings(8000); advanceTime(13000); closeSettings(); advanceTime(13000);
+  assert.equal(runStats.activePlayMs, 3000);
+  advanceTime(13500); assert.equal(runStats.activePlayMs, 3500);
+  openQa(13500); advanceTime(18500); closeQa(); advanceTime(18500);
+  assert.equal(runStats.activePlayMs, 3500);
+  advanceTime(19000); assert.equal(runStats.activePlayMs, 4000);
+
+  // frame途中のTop Out後は残り時間を数えず、終了後も停止する。
+  openQa(19000); loadQaTopOut(); lockElapsed = 400; lastTime = 0;
+  advanceTime(1000); assert.equal(gameOver, true); assert.equal(runStats.activePlayMs, 100);
+  assert.equal(resultsStatsSnapshot.activePlayMs, 100); assert.equal(resultsPlayTimeElement.textContent, "00:00");
+  advanceTime(5000); assert.equal(runStats.activePlayMs, 100);
+
+  // Resultsは値をcopyし、Restartで新Runを作っても終了時snapshotを変えない。
+  runStats = { activePlayMs:62_000, tetrises:3, tSpins:2, tSpinMinis:1, perfectClears:2, maxCombo:4 };
+  showResults("GAME OVER"); const oldSnapshot = resultsStatsSnapshot;
+  assert.equal(resultsPlayTimeElement.textContent, "01:02");
+  assert.equal(resultsTetrisesElement.textContent, 3); assert.equal(resultsTSpinsElement.textContent, 2);
+  assert.equal(resultsTSpinMinisElement.textContent, 1); assert.equal(resultsPerfectClearsElement.textContent, 2);
+  assert.equal(resultsMaxComboElement.textContent, 4);
+  restart(); assert.deepEqual(runStats, createEmptyRunStats());
+  assert.deepEqual(oldSnapshot, { activePlayMs:62_000, tetrises:3, tSpins:2, tSpinMinis:1, perfectClears:2, maxCombo:4 });
+
+  // Settings/Pauseは値を維持し、QAの新scenarioとPLAY AGAINは新Runとしてresetする。
+  runStats.tetrises = 2; togglePause(0); togglePause(0); assert.equal(runStats.tetrises, 2);
+  openSettings(0); changeSetting("sfxEnabled", false); changeSetting("effectsEnabled", false); closeSettings();
+  assert.equal(runStats.tetrises, 2);
+  openQa(0); clearQaBoard(); assert.equal(runStats.tetrises, 2);
+  openQa(0); forceQaI(); assert.equal(runStats.tetrises, 2);
+  openQa(0); loadQa149To150(); assert.deepEqual(runStats, createEmptyRunStats());
+  runStats.tSpins = 1; document.getElementById("play-again").click(); assert.deepEqual(runStats, createEmptyRunStats());
+  runStats.perfectClears = 1; openQa(0); loadQaTopOut(); assert.deepEqual(runStats, createEmptyRunStats());
+
+  // Debug/QAやSFX/Effects設定に関係なくStatsは記録する。
+  debugLevelSelect.value = "5"; debugLevelSelect.change();
+  settings.sfxEnabled = false; settings.effectsEnabled = false;
+  finishStatsEvent("NONE", 4); assert.equal(runStats.tetrises, 1);
+  endGame(); assert.equal(resultsDebugElement.textContent, "DEBUG RUN");
+  assert.equal(resultsTetrisesElement.textContent, 1);
+
+  // StatsはSettings/High Scoreと異なりlocalStorageへ保存しない。
+  assert.equal(localStorage.getItem("falling-block-run-stats"), null);
+  assert.equal(localStorage.getItem("runStats"), null);
+`);
+console.log("PASS: Run statistics counts, active play time, pause/modal/terminal exclusion, Results snapshot and Run lifecycle resets.");

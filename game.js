@@ -114,6 +114,12 @@ const resultsScoreElement = document.getElementById("results-score");
 const resultsLinesElement = document.getElementById("results-lines");
 const resultsLevelElement = document.getElementById("results-level");
 const resultsHighScoreElement = document.getElementById("results-high-score");
+const resultsPlayTimeElement = document.getElementById("results-play-time");
+const resultsTetrisesElement = document.getElementById("results-tetrises");
+const resultsTSpinsElement = document.getElementById("results-t-spins");
+const resultsTSpinMinisElement = document.getElementById("results-t-spin-minis");
+const resultsPerfectClearsElement = document.getElementById("results-perfect-clears");
+const resultsMaxComboElement = document.getElementById("results-max-combo");
 const boardStageElement = document.querySelector(".board-stage");
 const gameUiElement = document.querySelector("main");
 const settingsOverlay = document.getElementById("settings-overlay");
@@ -180,6 +186,11 @@ let comboCount = -1;
 // Level 1は通常ゲーム。高Level選択時だけHigh Scoreの対象外にする。
 let selectedStartLevel = 1;
 let isQaRun = false;
+function createEmptyRunStats() {
+  return { activePlayMs: 0, tetrises: 0, tSpins: 0, tSpinMinis: 0, perfectClears: 0, maxCombo: 0 };
+}
+let runStats = createEmptyRunStats();
+let resultsStatsSnapshot = null;
 
 function updateProgressUI() {
   linesElement.textContent = totalLines;
@@ -206,7 +217,14 @@ function enableAudio() {
 }
 
 function playSound(type) {
-  if (!settings.sfxEnabled || settings.sfxVolume === 0 || !audioContext || audioContext.state !== "running") return;
+  if (!settings.sfxEnabled || settings.sfxVolume === 0 || !audioContext) return;
+  if (audioContext.state === "suspended" || audioContext.state === "interrupted") {
+    audioContext.resume().then(() => {
+      if (audioContext.state === "running") playSound(type);
+    }).catch(() => {});
+    return;
+  }
+  if (audioContext.state !== "running") return;
   const sounds = {
     line: [[330, 0, 0.07]], double: [[360, 0, 0.08]], triple: [[400, 0, 0.09]],
     tetris: [[390, 0, 0.08], [520, 0.07, 0.11]],
@@ -493,14 +511,29 @@ function showSpinFeedback() {
 }
 
 function showResults(title) {
+  resultsStatsSnapshot = { ...runStats };
   resultsTitleElement.textContent = title;
   resultsDebugElement.textContent = [selectedStartLevel === 1 ? "" : "DEBUG RUN", isQaRun ? "QA RUN" : ""].filter(Boolean).join(" · ");
   resultsScoreElement.textContent = score;
   resultsLinesElement.textContent = totalLines;
   resultsLevelElement.textContent = level;
   resultsHighScoreElement.textContent = highScore;
+  resultsPlayTimeElement.textContent = formatPlayTime(resultsStatsSnapshot.activePlayMs);
+  resultsTetrisesElement.textContent = resultsStatsSnapshot.tetrises;
+  resultsTSpinsElement.textContent = resultsStatsSnapshot.tSpins;
+  resultsTSpinMinisElement.textContent = resultsStatsSnapshot.tSpinMinis;
+  resultsPerfectClearsElement.textContent = resultsStatsSnapshot.perfectClears;
+  resultsMaxComboElement.textContent = resultsStatsSnapshot.maxCombo;
   resultsElement.hidden = false;
   replayAnimation(resultsElement, "results-enter");
+}
+
+function formatPlayTime(milliseconds) {
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return `${String(totalMinutes).padStart(2, "0")}:${seconds}`;
+  return `${Math.floor(totalMinutes / 60)}:${String(totalMinutes % 60).padStart(2, "0")}:${seconds}`;
 }
 
 function hideResults() {
@@ -773,6 +806,11 @@ function lockPiece() {
     ? calculatePerfectClearScore(cleared, level, b2bTetrisPerfectClear)
     : 0;
   comboCount = cleared > 0 ? comboCount + 1 : -1;
+  if (cleared === 4) runStats.tetrises++;
+  if (lastLockResult.spin === "T_SPIN") runStats.tSpins++;
+  else if (lastLockResult.spin === "T_SPIN_MINI") runStats.tSpinMinis++;
+  if (lastPerfectClear) runStats.perfectClears++;
+  runStats.maxCombo = Math.max(runStats.maxCombo, comboCount);
   const comboScore = comboCount > 0 ? 50 * comboCount * level : 0;
   addScore(clearScore + perfectClearScore + comboScore);
   // 最初の対象消去は開始だけ。0ラインは既存の連続状態を維持する。
@@ -852,6 +890,7 @@ function restart() {
   backToBackActive = false;
   lastLockResult = null;
   lastPerfectClear = false;
+  runStats = createEmptyRunStats();
   clearHeldKeys();
   board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
   score = 0;
@@ -1033,15 +1072,24 @@ function advanceSimulation(time) {
   // 同じフレーム内で入力が先に処理されても時間を巻き戻さない。
   time = Math.max(time, lastTime);
   if (!gameOver && !marathonComplete && !paused && !document.hidden) {
+    const simulationElapsed = time - lastTime;
+    let activeElapsed = simulationElapsed;
+    let playTimeAlreadyAdded = 0;
     let remaining = time - lastTime;
     let changed = false;
     // 落下前と着地後の時間を分け、着地する前の時間を固定待ちに加えない。
     while (remaining > 0) {
       if (isGrounded()) {
+        const timeUntilLock = Math.max(0, LOCK_DELAY - lockElapsed);
         dropElapsed = 0;
         lockElapsed += remaining;
         if (lockElapsed >= LOCK_DELAY) {
+          playTimeAlreadyAdded = simulationElapsed - remaining + Math.min(remaining, timeUntilLock);
+          runStats.activePlayMs += playTimeAlreadyAdded;
           lockPiece();
+          if (gameOver || marathonComplete) {
+            activeElapsed = playTimeAlreadyAdded;
+          }
           changed = true;
         }
         break;
@@ -1059,6 +1107,7 @@ function advanceSimulation(time) {
         if (isGrounded()) break;
       }
     }
+    runStats.activePlayMs += activeElapsed - playTimeAlreadyAdded;
     if (changed) draw();
   }
   lastTime = time;
