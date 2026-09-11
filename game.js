@@ -121,6 +121,7 @@ const resultsTSpinMinisElement = document.getElementById("results-t-spin-minis")
 const resultsPerfectClearsElement = document.getElementById("results-perfect-clears");
 const resultsMaxComboElement = document.getElementById("results-max-combo");
 const boardStageElement = document.querySelector(".board-stage");
+const pauseVisualElement = document.getElementById("pause-visual");
 const gameUiElement = document.querySelector("main");
 const startOverlay = document.getElementById("start-overlay");
 const startButton = document.getElementById("start-game");
@@ -201,10 +202,15 @@ let runStats = createEmptyRunStats();
 let resultsStatsSnapshot = null;
 
 function updateProgressUI() {
-  linesElement.textContent = totalLines;
+  linesElement.textContent = `${totalLines} / ${MARATHON_TARGET_LINES}`;
   b2bElement.textContent = backToBackActive ? "B2B ON" : "B2B OFF";
   comboElement.textContent = !gameOver && comboCount > 0 ? `COMBO ${comboCount}` : "";
   qaRunElement.hidden = !isQaRun;
+}
+
+function updatePauseVisual() {
+  const visible = paused && !settingsOpen && !qaOpen && !gameOver && !marathonComplete && !startScreenOpen;
+  pauseVisualElement.hidden = !visible;
 }
 
 function clearSpinFeedback() {
@@ -321,6 +327,7 @@ function openSettings(time = performance.now()) {
   clearHeldKeys();
   lastTime = null;
   settingsOpen = true;
+  updatePauseVisual();
   updateSettingsUI();
   gameUiElement.inert = true;
   startOverlay.inert = true;
@@ -346,6 +353,7 @@ function closeSettings() {
     pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
   }
   settingsWasPaused = false;
+  updatePauseVisual();
   (startScreenOpen ? startSettingsButton : settingsButton).focus?.();
 }
 
@@ -367,6 +375,7 @@ function keepStartFocus(event) {
 
 function showStartScreen() {
   startScreenOpen = true;
+  updatePauseVisual();
   startHighScoreElement.textContent = highScore;
   startOverlay.hidden = false;
   gameUiElement.inert = true;
@@ -377,6 +386,12 @@ function showStartScreen() {
 }
 
 function startGame() {
+  selectedStartLevel = 1;
+  isQaRun = false;
+  restart();
+}
+
+function playAgain() {
   selectedStartLevel = 1;
   isQaRun = false;
   restart();
@@ -439,6 +454,7 @@ function openQa(time = performance.now()) {
   clearHeldKeys();
   lastTime = null;
   qaOpen = true;
+  updatePauseVisual();
   qaMessageElement.textContent = "";
   gameUiElement.inert = true;
   startOverlay.inert = true;
@@ -464,6 +480,7 @@ function closeQa() {
     pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
   }
   qaWasPaused = false;
+  updatePauseVisual();
   (startScreenOpen ? startDevToolsButton : devToolsButton).focus?.();
 }
 
@@ -627,6 +644,7 @@ function endGame() {
   if (marathonComplete) return;
   lastRotationKick = null;
   gameOver = true;
+  updatePauseVisual();
   clearSpinFeedback();
   updateProgressUI();
   clearHeldKeys();
@@ -638,6 +656,7 @@ function endGame() {
 
 function completeMarathon() {
   marathonComplete = true;
+  updatePauseVisual();
   clearSpinFeedback();
   clearHeldKeys();
   statusElement.textContent = "MARATHON COMPLETE — R またはボタンで再開";
@@ -680,6 +699,7 @@ function togglePause(time = performance.now()) {
   advanceTime(time);
   if (gameOver || marathonComplete) return;
   paused = !paused;
+  updatePauseVisual();
   clearHeldKeys();
   statusElement.textContent = paused ? "一時停止中" : "プレイ中";
   pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
@@ -953,6 +973,7 @@ function restart() {
   gameOver = false;
   marathonComplete = false;
   paused = false;
+  updatePauseVisual();
   heldType = null;
   holdUsed = false;
   totalLines = (selectedStartLevel - 1) * 10;
@@ -1034,7 +1055,7 @@ document.addEventListener("keydown", event => {
   draw();
 });
 document.getElementById("restart").addEventListener("click", () => { enableAudio(); restart(); });
-document.getElementById("play-again").addEventListener("click", () => { enableAudio(); restart(); });
+document.getElementById("play-again").addEventListener("click", () => { enableAudio(); playAgain(); });
 startButton.addEventListener("click", () => { enableAudio(); startGame(); });
 startSettingsButton.addEventListener("click", event => openSettings(event.timeStamp));
 startDevToolsButton.addEventListener("click", event => openQa(event.timeStamp));

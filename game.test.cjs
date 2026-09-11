@@ -1864,15 +1864,15 @@ console.log("PASS: Combo progression, ten clears, zero/spin-zero breaks, mixed c
 const uiTests = createGame();
 uiTests(b2bFixtures + `
   function checkUI() {
-    assert.equal(Number(linesElement.textContent),totalLines);
+    assert.equal(linesElement.textContent,totalLines+" / "+MARATHON_TARGET_LINES);
     assert.equal(b2bElement.textContent,backToBackActive ? "B2B ON" : "B2B OFF");
     assert.equal(comboElement.textContent,!gameOver && comboCount>0 ? "COMBO "+comboCount : "");
   }
-  restart(); checkUI(); assert.equal(Number(linesElement.textContent),0);
+  restart(); checkUI(); assert.equal(linesElement.textContent,"0 / 150");
   for(const [spin,maximum] of [["NONE",4],["T_SPIN",3],["T_SPIN_MINI",2]]) {
     for(let lines=0;lines<=maximum;lines++) {
       restart(); finishB2BClear(spin,lines); checkUI();
-      assert.equal(Number(linesElement.textContent),lines);
+      assert.equal(linesElement.textContent,lines+" / 150");
       const expected=spin==="NONE" ? "" : (spin==="T_SPIN" ? "T-SPIN" : "T-SPIN MINI")+[""," SINGLE"," DOUBLE"," TRIPLE"][lines];
       assert.equal(clearEventElement.textContent,expected);
     }
@@ -1880,7 +1880,7 @@ uiTests(b2bFixtures + `
   restart();
   for(let i=0;i<3;i++) { finishB2BClear("NONE",1); checkUI(); }
   assert.equal(comboElement.textContent,"COMBO 2");
-  assert.equal(Number(linesElement.textContent),3);
+  assert.equal(linesElement.textContent,"3 / 150");
   finishB2BClear("NONE",0); checkUI(); assert.equal(comboElement.textContent,"");
   restart(); finishB2BClear("NONE",4); checkUI();
   assert.equal(score,800); assert.equal(b2bElement.textContent,"B2B ON");
@@ -1906,7 +1906,7 @@ uiTests(b2bFixtures + `
   advanceDisplayTime(1200); assert.equal(clearEventElement.textContent,""); assert.ok(paused);
   togglePause(); checkUI();
   finishB2BClear("T_SPIN",1); restart(); checkUI();
-  assert.equal(Number(linesElement.textContent),0); assert.equal(b2bElement.textContent,"B2B OFF");
+  assert.equal(linesElement.textContent,"0 / 150"); assert.equal(b2bElement.textContent,"B2B OFF");
   assert.equal(comboElement.textContent,""); assert.equal(clearEventElement.textContent,"");
   advanceDisplayTime(1200); assert.equal(clearEventElement.textContent,"");
   finishB2BClear("T_SPIN",1); finishB2BClear("T_SPIN",1);
@@ -2004,7 +2004,7 @@ debugLevelTests(`
     assert.equal(level, selected);
     assert.equal(totalLines, (selected - 1) * 10);
     assert.equal(Number(levelElement.textContent), selected);
-    assert.equal(Number(linesElement.textContent), (selected - 1) * 10);
+    assert.equal(linesElement.textContent, ((selected - 1) * 10)+" / 150");
     assert.ok(Math.abs(getGravityInterval() - expectedIntervals[selected]) < 1);
     assert.equal(score, 0);
     assert.equal(board.flat().filter(Boolean).length, 0);
@@ -2671,9 +2671,11 @@ qaTests(`
   assert.equal(resultsElement.hidden, false); assert.equal(resultsDebugElement.textContent, "QA RUN");
   assert.deepEqual(qaSounds, ["complete"]); assert.equal(highScore, 500); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "500");
 
-  // PLAY AGAIN / RestartはQA RUNを維持し、fixture自体は再ロードしない。
-  document.getElementById("play-again").click(); assert.equal(isQaRun, true); assert.equal(totalLines, 0); assert.equal(gameOver, false);
-  restart(); assert.equal(isQaRun, true); assert.equal(qaRunElement.hidden, false);
+  // PLAY AGAINはNormalへ戻し、通常Restartは現在のRun条件を維持する。
+  document.getElementById("play-again").click();
+  assert.equal(isQaRun, false); assert.equal(selectedStartLevel, 1); assert.equal(level, 1); assert.equal(totalLines, 0);
+  assert.equal(gameOver, false); assert.equal(qaRunElement.hidden, true);
+  markQaRun(); restart(); assert.equal(isQaRun, true); assert.equal(qaRunElement.hidden, false);
 
   // CLEAR BOARDは固定盤面だけを空にし、Score/Lines/Queue/HOLD/active pieceを維持する。
   board[0][0] = 7; board[TOTAL_ROWS-1][9] = 7; score = 321; totalLines = 12; level = 2; heldType = 4;
@@ -2978,3 +2980,86 @@ devToolsTests(`
   assert.equal(localStorage.getItem("devToolsOpen"), null); assert.equal(localStorage.getItem("qaOpen"), null);
 `);
 console.log("PASS: consolidated DEV TOOLS UI, modal timing/input safety, focus, Normal/Debug semantics and Settings/focus regressions.");
+
+const finalUiHtml = fs.readFileSync(`${__dirname}/index.html`, "utf8");
+const finalUiCss = fs.readFileSync(`${__dirname}/style.css`, "utf8");
+assert.ok(finalUiHtml.includes('id="pause-visual"') && finalUiHtml.includes('>PAUSED</div>'));
+assert.ok(finalUiCss.includes(".pause-visual") && finalUiCss.includes("pointer-events: none"));
+
+const finalUiTests = createGame();
+finalUiTests(`
+  // 開始待ち・通常プレイではPause表示を出さず、手動Pauseだけ盤面へ表示する。
+  assert.equal(startScreenOpen, true); assert.equal(pauseVisualElement.hidden, true);
+  assert.equal(linesElement.textContent, "0 / 150");
+  startGame(); assert.equal(pauseVisualElement.hidden, true);
+  togglePause(0); assert.equal(paused, true); assert.equal(pauseVisualElement.hidden, false);
+  togglePause(0); assert.equal(paused, false); assert.equal(pauseVisualElement.hidden, true);
+
+  // Manual Pause中でもSettings・DEV TOOLSを開いている間は重複表示しない。
+  togglePause(0); openSettings(0); assert.equal(pauseVisualElement.hidden, true);
+  closeSettings(); assert.equal(paused, true); assert.equal(pauseVisualElement.hidden, false);
+  togglePause(0); openQa(0); assert.equal(pauseVisualElement.hidden, true);
+  closeQa(); assert.equal(paused, false); assert.equal(pauseVisualElement.hidden, true);
+
+  // focus停止だけではPause表示を出さず、終了・再開・開始画面でも残さない。
+  emit("blur"); assert.equal(pauseVisualElement.hidden, true); emit("focus");
+  togglePause(0); endGame(); assert.equal(pauseVisualElement.hidden, true);
+  restart(); togglePause(0); completeMarathon(); assert.equal(pauseVisualElement.hidden, true);
+  restart(); togglePause(0); restart(); assert.equal(pauseVisualElement.hidden, true);
+  showStartScreen(); assert.equal(pauseVisualElement.hidden, true);
+
+  // 目標値には既存定数を使い、開始前・進行中・達成・超過を同じ形式で表示する。
+  for (const lines of [0, 1, 149, 150, 152]) {
+    totalLines = lines; updateProgressUI();
+    assert.equal(linesElement.textContent, lines + " / " + MARATHON_TARGET_LINES);
+  }
+  selectedStartLevel = 15; restart(); assert.equal(linesElement.textContent, "140 / 150");
+`);
+console.log("PASS: board Pause overlay lifecycle and LINES current/150 HUD display without gameplay state changes.");
+
+const playAgainStorage = {};
+const playAgainTests = createGame(playAgainStorage);
+playAgainTests(`
+  function assertFreshNormalRun() {
+    assert.equal(selectedStartLevel, 1); assert.equal(isQaRun, false);
+    assert.equal(level, 1); assert.equal(totalLines, 0); assert.equal(linesElement.textContent, "0 / 150");
+    assert.equal(score, 0); assert.equal(gameOver, false); assert.equal(marathonComplete, false);
+    assert.equal(startScreenOpen, false); assert.equal(resultsElement.hidden, true); assert.equal(paused, false);
+    assert.equal(qaOpen, false); assert.equal(settingsOpen, false); assert.equal(qaRunElement.hidden, true);
+    assert.deepEqual(runStats, createEmptyRunStats()); assert.equal(heldType, null); assert.equal(holdUsed, false);
+    assert.equal(comboCount, -1); assert.equal(backToBackActive, false);
+    assert.equal(lockElapsed, 0); assert.equal(lockResets, 0); assert.equal(dropElapsed, 0); assert.equal(lastTime, null);
+    assert.equal(activeDirection, null); assert.equal(nextHorizontalTime, Infinity);
+    assert.equal(nextSoftDropTime, Infinity); assert.equal(softDropScheduledPiece, null);
+    assert.equal(getGravityInterval(), getGravityInterval(1));
+    assert.equal(board.length, TOTAL_ROWS); assert.ok(board.every(row => row.every(cell => cell === 0)));
+    assert.ok(piece); assert.equal(nextQueue.length, NEXT_COUNT);
+  }
+
+  // Normal ResultsからもStart Screenを挟まずfresh Normal Runへ戻る。
+  startGame(); runStats.tetrises = 2; endGame(); document.getElementById("play-again").click();
+  assertFreshNormalRun();
+
+  // 通常RESTARTはDebug条件を維持し、ResultsのPLAY AGAINだけがNormalへ戻す。
+  startDebugLevel(15); restart();
+  assert.equal(selectedStartLevel, 15); assert.equal(level, 15); assert.equal(totalLines, 140); assert.equal(isQaRun, false);
+  runStats.tSpins = 1; endGame(); document.getElementById("play-again").click();
+  assertFreshNormalRun();
+  addScore(100); assert.equal(highScore, 100); assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "100");
+
+  // Debug Complete、QA Game Over、QA CompleteのどのResultsからでもNormalへ戻る。
+  startDebugLevel(13); completeMarathon(); document.getElementById("play-again").click(); assertFreshNormalRun();
+  openQa(0); loadQaTopOut(); hardDrop(); assert.equal(gameOver, true);
+  document.getElementById("play-again").click(); assertFreshNormalRun();
+  selectedStartLevel = 15; openQa(0); loadQa149To150(); hardDrop(); assert.equal(marathonComplete, true);
+  document.getElementById("play-again").click(); assertFreshNormalRun();
+
+  // 前Runの入力やResults待機時間を新Runへ持ち込まない。
+  heldKeys.ArrowRight = true; activeDirection = "ArrowRight"; nextHorizontalTime = 10;
+  heldKeys.ArrowDown = true; nextSoftDropTime = 10; softDropScheduledPiece = piece;
+  runStats.activePlayMs = 5000; endGame(); lastTime = 1000;
+  document.getElementById("play-again").click(); assertFreshNormalRun();
+  advanceTime(31000); assert.equal(runStats.activePlayMs, 0); const freshY = piece.y;
+  advanceTime(32000); assert.equal(runStats.activePlayMs, 1000); assert.equal(piece.y, freshY + 1);
+`);
+console.log("PASS: PLAY AGAIN always starts a fresh Normal Level 1 run while Restart preserves current Debug/QA conditions.");
