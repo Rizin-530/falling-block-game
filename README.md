@@ -1,5 +1,7 @@
 # Falling Block Game
 
+**Play Online:** [Falling Block Gameをプレイ](https://rizin-530.github.io/falling-block-game/)
+
 ブラウザで遊べる、シンプルな落ちものブロックパズルゲームです。150 Linesの消去を目指すMarathon形式で、HOLD、NEXT、Ghost、T-Spin、Back-to-Back、Combo、Perfect Clearなどに対応しています。Vanilla HTML / CSS / JavaScriptだけで動作します。
 
 ## ゲーム概要
