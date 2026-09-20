@@ -13,6 +13,7 @@
       <p class="eyebrow">BLOCK PUZZLE</p>
       <h1>落ちものブロックパズル</h1>
     </header>
+    <div class="game-shell">
     <div class="game-layout">
       <aside class="left-panel" aria-label="HOLDと操作ガイド">
         <section class="panel preview-panel">
@@ -35,6 +36,9 @@
         </section>
       </aside>
       <section class="play-area" aria-label="ゲーム盤面">
+        <div id="vs-indicators" class="vs-indicators vs-incoming-indicator" hidden>
+          <span>Human Incoming: <strong id="human-incoming">0</strong></span>
+        </div>
         <div class="board-stage">
           <canvas id="board" width="300" height="600" aria-label="10列20行のゲーム盤"></canvas>
           <div id="pause-visual" class="pause-visual" aria-hidden="true" hidden>PAUSED</div>
@@ -87,6 +91,24 @@
           <button id="open-dev-tools" class="dev-tools-open" type="button">DEV TOOLS</button>
         </div>
       </aside>
+    </div>
+    <section id="dual-board-test" class="dual-board-test" aria-label="Dual Board Test" hidden>
+      <div class="dual-player-view">
+        <h2 id="second-player-title">PLAYER 2</h2>
+        <div id="cpu-incoming-indicator" class="vs-indicators vs-incoming-indicator" hidden>
+          <span>CPU Incoming: <strong id="second-incoming">0</strong></span>
+        </div>
+        <div class="dual-player-layout">
+          <div class="dual-board-wrap"><canvas id="second-board" width="300" height="600" aria-label="Player 2のゲーム盤"></canvas><p id="second-status" class="dual-status" role="status"></p></div>
+          <div class="dual-player-side">
+            <section class="dual-preview"><h3>HOLD</h3><canvas id="second-hold" width="120" height="80" aria-label="Player 2のHOLD"></canvas></section>
+            <section class="dual-preview"><h3>NEXT</h3><canvas id="second-next" width="120" height="200" aria-label="Player 2のNEXT"></canvas></section>
+            <dl class="dual-stats"><div><dt>SCORE</dt><dd id="second-score">0</dd></div><div><dt>LINES</dt><dd id="second-lines">0</dd></div><div><dt>LEVEL</dt><dd id="second-level">1</dd></div></dl>
+          </div>
+        </div>
+      </div>
+      <button id="dual-exit" type="button">EXIT DUAL TEST</button>
+    </section>
     </div>
     <p class="footer-note">薄いブロックは着地点の目印です。</p>
   </main>
@@ -187,24 +209,6 @@
         <button id="qa-close" type="button">CLOSE</button>
       </div>
     </div>
-  </section>
-  <section id="dual-board-test" class="dual-board-test" aria-label="Dual Board Test" hidden>
-    <div class="dual-player-view">
-      <h2 id="second-player-title">PLAYER 2</h2>
-      <div id="vs-indicators" class="vs-indicators" hidden>
-        <span>Human Incoming: <strong id="human-incoming">0</strong></span>
-        <span>CPU Incoming: <strong id="second-incoming">0</strong></span>
-      </div>
-      <div class="dual-player-layout">
-        <div class="dual-board-wrap"><canvas id="second-board" width="300" height="600" aria-label="Player 2のゲーム盤"></canvas><p id="second-status" class="dual-status" role="status"></p></div>
-        <div class="dual-player-side">
-          <section class="dual-preview"><h3>HOLD</h3><canvas id="second-hold" width="120" height="80" aria-label="Player 2のHOLD"></canvas></section>
-          <section class="dual-preview"><h3>NEXT</h3><canvas id="second-next" width="120" height="200" aria-label="Player 2のNEXT"></canvas></section>
-          <dl class="dual-stats"><div><dt>SCORE</dt><dd id="second-score">0</dd></div><div><dt>LINES</dt><dd id="second-lines">0</dd></div><div><dt>LEVEL</dt><dd id="second-level">1</dd></div></dl>
-        </div>
-      </div>
-    </div>
-    <button id="dual-exit" type="button">EXIT DUAL TEST</button>
   </section>
 </body>
 </html>

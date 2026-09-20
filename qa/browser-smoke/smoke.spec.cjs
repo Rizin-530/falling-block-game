@@ -286,6 +286,7 @@ test("VS transactional fixture settles Human and CPU in one window and defers ne
 
 test("public VS CPU starts from Start Screen without QA or Marathon mode", async ({ page }) => {
   const issues = captureRuntimeIssues(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
   await expect(page.locator("#start-overlay")).toBeVisible();
   await expect(page.locator("#start-vs")).toBeEnabled();
@@ -301,6 +302,13 @@ test("public VS CPU starts from Start Screen without QA or Marathon mode", async
   await expect(page.locator("#vs-results")).toBeHidden();
   await expect(page.locator("#status")).toHaveText("VS CPU");
   await expect(page.locator("#open-dev-tools")).toBeHidden();
+  await expect(page.locator("#dual-exit")).toHaveText("EXIT VS");
+  const desktopBoxes = await Promise.all([page.locator("#board").boundingBox(), page.locator("#second-board").boundingBox()]);
+  expect(desktopBoxes[0]).not.toBeNull();
+  expect(desktopBoxes[1]).not.toBeNull();
+  expect(desktopBoxes[1].x).toBeGreaterThan(desktopBoxes[0].x);
+  expect(desktopBoxes[0].x + desktopBoxes[0].width <= desktopBoxes[1].x
+    || desktopBoxes[1].x + desktopBoxes[1].width <= desktopBoxes[0].x).toBe(true);
 
   // DEV TOOLS and its VS fixtures are unavailable while the public match is active.
   await expect(page.locator("#qa-overlay")).toBeHidden();
@@ -312,6 +320,12 @@ test("public VS CPU starts from Start Screen without QA or Marathon mode", async
   await expect(page.locator("#pause-visual")).toBeVisible();
   await page.keyboard.press("p");
   await expect(page.locator("#pause-visual")).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 600 });
+  const shortViewportBoxes = await Promise.all([page.locator("#board").boundingBox(), page.locator("#second-board").boundingBox()]);
+  expect(shortViewportBoxes[0]).not.toBeNull();
+  expect(shortViewportBoxes[1]).not.toBeNull();
+  expect(shortViewportBoxes[0].x + shortViewportBoxes[0].width <= shortViewportBoxes[1].x
+    || shortViewportBoxes[1].x + shortViewportBoxes[1].width <= shortViewportBoxes[0].x).toBe(true);
   await page.locator("#restart").click();
   await expect(page.locator("#second-player-title")).toHaveText("CPU");
   await expect(page.locator("#second-status")).toHaveText("CPU");

@@ -189,6 +189,7 @@ const qaForceDoubleTopOutButton = document.getElementById("qa-force-double-top-o
 const qaTransactionalLockButton = document.getElementById("qa-transactional-lock");
 const qaVsEngineButton = document.getElementById("qa-vs-engine");
 const dualBoardTestElement = document.getElementById("dual-board-test");
+const dualExitButton = document.getElementById("dual-exit");
 const secondBoardCanvas = document.getElementById("second-board");
 const secondBoardContext = secondBoardCanvas.getContext("2d");
 const secondHoldCanvas = document.getElementById("second-hold");
@@ -198,6 +199,7 @@ const secondLinesElement = document.getElementById("second-lines");
 const secondLevelElement = document.getElementById("second-level");
 const secondStatusElement = document.getElementById("second-status");
 const secondPlayerTitleElement = document.getElementById("second-player-title");
+const cpuIndicatorsElement = document.getElementById("cpu-incoming-indicator");
 const vsIndicatorsElement = document.getElementById("vs-indicators");
 const humanIncomingElement = document.getElementById("human-incoming");
 const secondIncomingElement = document.getElementById("second-incoming");
@@ -938,6 +940,7 @@ function resolveVersusLockFor(state, incomingQueue, opponentQueue, { holeColumn 
 function updateVersusIndicators() {
   if (!vsIndicatorsElement) return;
   vsIndicatorsElement.hidden = !vsEngineTestActive;
+  if (cpuIndicatorsElement) cpuIndicatorsElement.hidden = !vsEngineTestActive;
   if (!vsEngineTestActive || !attackGarbageState) return;
   humanIncomingElement.textContent = totalIncomingGarbage(attackGarbageState.humanIncoming);
   secondIncomingElement.textContent = totalIncomingGarbage(attackGarbageState.secondIncoming);
@@ -1141,6 +1144,7 @@ function startDualBoardTest() {
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   dualBoardTestElement.hidden = false;
+  dualExitButton.textContent = "EXIT DUAL TEST";
   secondView.statusText = "";
   hideVsResults();
   updateVsFixtureVisibility();
@@ -1174,6 +1178,7 @@ function startCpuTest() {
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   secondView.statusText = "CPU v0.1";
+  dualExitButton.textContent = "EXIT DUAL TEST";
   hideVsResults();
   updateVsFixtureVisibility();
   dualBoardTestElement.hidden = false;
@@ -1206,6 +1211,7 @@ function startFreshVsMatch({ seed, publicMode = false } = {}) {
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   secondView.statusText = publicVsActive ? "CPU" : "CPU v0.1 — VS";
+  dualExitButton.textContent = publicVsActive ? "EXIT VS" : "EXIT DUAL TEST";
   if (secondPlayerTitleElement) secondPlayerTitleElement.textContent = "CPU";
   vsIndicatorsElement.hidden = false;
   dualBoardTestElement.hidden = false;
@@ -1241,6 +1247,7 @@ function exitVsMatch() {
   selectedStartLevel = 1;
   humanController = createHumanControllerState();
   secondView.statusText = "";
+  dualExitButton.textContent = "EXIT DUAL TEST";
   if (secondPlayerTitleElement) secondPlayerTitleElement.textContent = "PLAYER 2";
   devToolsButton.hidden = false;
   showStartScreen();
