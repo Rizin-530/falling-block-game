@@ -1216,6 +1216,61 @@ slowFrameTests(`
 `);
 console.log("PASS: normal frames, 249/250/251ms boundary, sustained 300ms frames, single stall recovery, lock timing/kicks and lifecycle resets.");
 
+const controllerSeparationTests = createGame();
+controllerSeparationTests(`
+  // Human ControllerはPlayerStateと独立し、各ゲーム状態も共有しない。
+  const firstController = createHumanControllerState();
+  const secondController = createHumanControllerState();
+  assert.notEqual(firstController, secondController);
+  firstController.heldKeys.ArrowLeft = true;
+  firstController.activeDirection = "ArrowLeft";
+  firstController.nextHorizontalTime = 170;
+  assert.equal(secondController.heldKeys.ArrowLeft, false);
+  assert.equal(secondController.activeDirection, null);
+  assert.equal(secondController.nextHorizontalTime, Infinity);
+  assert.equal(humanController.heldKeys.ArrowLeft, false);
+
+  // DOMイベントを渡さず、キーから正規化されたActionだけをゲームへ送る。
+  assert.equal(HUMAN_KEY_ACTIONS.ArrowLeft, PLAYER_ACTIONS.MOVE_LEFT);
+  assert.equal(HUMAN_KEY_ACTIONS.ArrowRight, PLAYER_ACTIONS.MOVE_RIGHT);
+  assert.equal(HUMAN_KEY_ACTIONS.ArrowUp, PLAYER_ACTIONS.ROTATE_CW);
+  assert.equal(HUMAN_KEY_ACTIONS.KeyZ, PLAYER_ACTIONS.ROTATE_CCW);
+  assert.equal(HUMAN_KEY_ACTIONS.ArrowDown, PLAYER_ACTIONS.SOFT_DROP);
+  assert.equal(HUMAN_KEY_ACTIONS.Space, PLAYER_ACTIONS.HARD_DROP);
+  assert.equal(HUMAN_KEY_ACTIONS.KeyC, PLAYER_ACTIONS.HOLD);
+  restart(); spawnPiece(1); update(0);
+  const actionStartX = piece.x;
+  applyPlayerAction(PLAYER_ACTIONS.MOVE_LEFT);
+  assert.equal(piece.x, actionStartX - 1);
+
+  // SimulationはController内部を読まず、明示されたsoftDropActiveだけでGravityを抑制する。
+  restart(); spawnPiece(1); update(0);
+  humanController.heldKeys.ArrowDown = true;
+  const gravityStartY = piece.y;
+  advanceSimulation(getGravityInterval() + 1);
+  assert.equal(piece.y, gravityStartY + 1);
+  clearHeldKeys();
+
+  // Controller側のDAS/ARRとSoft Drop repeatは従来の時刻を維持する。
+  restart(); spawnPiece(1); update(0);
+  handleHumanKeyDown("ArrowRight", 0, false);
+  assert.equal(piece.x, 5);
+  advanceTime(169); assert.equal(piece.x, 5);
+  advanceTime(170); assert.equal(piece.x, 6);
+  advanceTime(220); assert.equal(piece.x, 7);
+  handleHumanKeyUp("ArrowRight", 220);
+  assert.equal(humanController.activeDirection, null);
+  assert.equal(humanController.nextHorizontalTime, Infinity);
+
+  restart(); spawnPiece(1); update(0);
+  handleHumanKeyDown("ArrowDown", 0, false);
+  assert.equal(piece.y, SPAWN_Y + 1);
+  advanceTime(40); assert.equal(piece.y, SPAWN_Y + 2);
+  handleHumanKeyUp("ArrowDown", 40);
+  assert.equal(humanController.nextSoftDropTime, Infinity);
+`);
+console.log("PASS: Human Controller state/action mapping, simulation isolation and DAS/ARR/Soft Drop timing separation.");
+
 // 別々のVMが同じ保存領域を使い、他画面の更新を知らない状態を再現する。
 const highScoreKey = "falling-block-high-score";
 for (const [initial, points, expected] of [[undefined,100,100],["100",500,500],["500",100,500]]) {

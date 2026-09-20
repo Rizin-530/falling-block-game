@@ -58,18 +58,35 @@ function saveSettings() {
 }
 
 let settings = loadSettings();
-const heldKeys = { ArrowLeft: false, ArrowRight: false, ArrowDown: false };
-let activeDirection = null;
-let nextHorizontalTime = Infinity;
-let nextSoftDropTime = Infinity;
-let softDropScheduledPiece = null;
+function createHumanControllerState() {
+  return {
+    heldKeys: { ArrowLeft: false, ArrowRight: false, ArrowDown: false },
+    activeDirection: null,
+    nextHorizontalTime: Infinity,
+    nextSoftDropTime: Infinity,
+    softDropScheduledPiece: null,
+  };
+}
+
+let humanController = createHumanControllerState();
+const HUMAN_CONTROLLER_FIELDS = [
+  "heldKeys", "activeDirection", "nextHorizontalTime", "nextSoftDropTime", "softDropScheduledPiece",
+];
+// 既存のテストとデバッグ用コードからも入力状態を確認できるよう、公開名はController stateへ転送する。
+for (const field of HUMAN_CONTROLLER_FIELDS) {
+  Object.defineProperty(globalThis, field, {
+    configurable: true,
+    get: () => humanController[field],
+    set: value => { humanController[field] = value; },
+  });
+}
 
 function clearHeldKeys() {
-  if (heldKeys.ArrowDown) dropElapsed = 0;
-  for (const code of Object.keys(heldKeys)) heldKeys[code] = false;
-  activeDirection = null;
-  nextHorizontalTime = nextSoftDropTime = Infinity;
-  softDropScheduledPiece = null;
+  if (humanController.heldKeys.ArrowDown) dropElapsed = 0;
+  for (const code of Object.keys(humanController.heldKeys)) humanController.heldKeys[code] = false;
+  humanController.activeDirection = null;
+  humanController.nextHorizontalTime = humanController.nextSoftDropTime = Infinity;
+  humanController.softDropScheduledPiece = null;
 }
 const SHAPES = [
   [[1, 1, 1, 1]],                 // I
@@ -739,8 +756,8 @@ function getGravityInterval(currentLevel = level) {
   return Math.pow(0.8 - ((gravityLevel - 1) * 0.007), gravityLevel - 1) * 1000;
 }
 
-function softDropUsesRepeat() {
-  return heldKeys.ArrowDown && settings.softDropMs < getGravityInterval();
+function softDropUsesRepeat(controller = humanController, state = currentPlayerState) {
+  return controller.heldKeys.ArrowDown && settings.softDropMs < getGravityInterval(state.level);
 }
 
 function togglePause(time = performance.now()) {
@@ -1116,6 +1133,77 @@ function restart() {
   draw();
 }
 
+const PLAYER_ACTIONS = Object.freeze({
+  MOVE_LEFT: "MOVE_LEFT",
+  MOVE_RIGHT: "MOVE_RIGHT",
+  ROTATE_CW: "ROTATE_CW",
+  ROTATE_CCW: "ROTATE_CCW",
+  SOFT_DROP: "SOFT_DROP",
+  HARD_DROP: "HARD_DROP",
+  HOLD: "HOLD",
+});
+const HUMAN_KEY_ACTIONS = Object.freeze({
+  ArrowLeft: PLAYER_ACTIONS.MOVE_LEFT,
+  ArrowRight: PLAYER_ACTIONS.MOVE_RIGHT,
+  ArrowUp: PLAYER_ACTIONS.ROTATE_CW,
+  KeyZ: PLAYER_ACTIONS.ROTATE_CCW,
+  ArrowDown: PLAYER_ACTIONS.SOFT_DROP,
+  Space: PLAYER_ACTIONS.HARD_DROP,
+  KeyC: PLAYER_ACTIONS.HOLD,
+});
+
+function applyPlayerAction(action) {
+  switch (action) {
+    case PLAYER_ACTIONS.MOVE_LEFT: return move(-1, 0);
+    case PLAYER_ACTIONS.MOVE_RIGHT: return move(1, 0);
+    case PLAYER_ACTIONS.ROTATE_CW: return rotate();
+    case PLAYER_ACTIONS.ROTATE_CCW: return rotate(-1);
+    case PLAYER_ACTIONS.SOFT_DROP: return stepDown(true);
+    case PLAYER_ACTIONS.HARD_DROP: return hardDrop();
+    case PLAYER_ACTIONS.HOLD: return hold();
+    default: return false;
+  }
+}
+
+function handleHumanKeyDown(code, time, isRepeat = false) {
+  if (isRepeat || humanController.heldKeys[code]) return;
+  if (code === "KeyR") { restart(); return; }
+  if (code === "KeyP") { togglePause(time); return; }
+  if (gameOver || marathonComplete || paused) return;
+
+  // 入力前の時間は入力前の姿勢に適用し、着地・リセット前の時間を混ぜない。
+  advanceTime(time);
+  if (gameOver || marathonComplete) return;
+  if (code in humanController.heldKeys) {
+    humanController.heldKeys[code] = true;
+    if (code === "ArrowDown") {
+      humanController.nextSoftDropTime = softDropUsesRepeat() ? lastTime + settings.softDropMs : Infinity;
+      humanController.softDropScheduledPiece = humanController.nextSoftDropTime < Infinity ? piece : null;
+    } else {
+      humanController.activeDirection = code;
+      humanController.nextHorizontalTime = lastTime + settings.dasMs;
+    }
+  }
+  if (HUMAN_KEY_ACTIONS[code]) applyPlayerAction(HUMAN_KEY_ACTIONS[code]);
+  if (code === "ArrowDown") dropElapsed = 0;
+  draw();
+}
+
+function handleHumanKeyUp(code, time) {
+  if (!(code in humanController.heldKeys) || !humanController.heldKeys[code]) return;
+  advanceTime(time);
+  humanController.heldKeys[code] = false;
+  if (code === "ArrowDown") {
+    humanController.nextSoftDropTime = Infinity;
+    humanController.softDropScheduledPiece = null;
+    dropElapsed = 0;
+  } else if (humanController.activeDirection === code) {
+    const other = code === "ArrowLeft" ? "ArrowRight" : "ArrowLeft";
+    humanController.activeDirection = humanController.heldKeys[other] ? other : null;
+    humanController.nextHorizontalTime = humanController.activeDirection ? lastTime + settings.dasMs : Infinity;
+  }
+}
+
 document.addEventListener("keydown", event => {
   if (settingsOpen) {
     keepSettingsFocus(event);
@@ -1143,40 +1231,7 @@ document.addEventListener("keydown", event => {
   event.preventDefault();
   if (focusSuspended) return;
   enableAudio();
-  if (event.repeat || heldKeys[event.code]) return;
-  if (event.code === "KeyR") {
-    if (!event.repeat) restart();
-    return;
-  }
-  if (event.code === "KeyP") {
-    if (!event.repeat) togglePause(event.timeStamp);
-    return;
-  }
-  if (gameOver || marathonComplete || paused) return;
-  // 入力前の時間は入力前の姿勢に適用し、着地・リセット前の時間を混ぜない。
-  advanceTime(event.timeStamp);
-  if (gameOver || marathonComplete) return;
-  if (event.code in heldKeys) {
-    heldKeys[event.code] = true;
-    if (event.code === "ArrowDown") {
-      nextSoftDropTime = softDropUsesRepeat() ? lastTime + settings.softDropMs : Infinity;
-      softDropScheduledPiece = nextSoftDropTime < Infinity ? piece : null;
-    }
-    else {
-      activeDirection = event.code;
-      nextHorizontalTime = lastTime + settings.dasMs;
-    }
-  }
-  switch (event.code) {
-    case "ArrowLeft": move(-1, 0); break;
-    case "ArrowRight": move(1, 0); break;
-    case "ArrowUp": if (!event.repeat) rotate(); break;
-    case "KeyZ": if (!event.repeat) rotate(-1); break;
-    case "ArrowDown": stepDown(true); dropElapsed = 0; break;
-    case "Space": if (!event.repeat) hardDrop(); break;
-    case "KeyC": if (!event.repeat) hold(); break;
-  }
-  draw();
+  handleHumanKeyDown(event.code, event.timeStamp, event.repeat);
 });
 document.getElementById("restart").addEventListener("click", () => { enableAudio(); restart(); });
 document.getElementById("play-again").addEventListener("click", () => { enableAudio(); playAgain(); });
@@ -1213,18 +1268,7 @@ qaResetButton.addEventListener("click", () => {
   closeQa();
 });
 document.addEventListener("keyup", event => {
-  if (!(event.code in heldKeys) || !heldKeys[event.code]) return;
-  advanceTime(event.timeStamp);
-  heldKeys[event.code] = false;
-  if (event.code === "ArrowDown") {
-    nextSoftDropTime = Infinity;
-    softDropScheduledPiece = null;
-    dropElapsed = 0;
-  } else if (activeDirection === event.code) {
-    const other = event.code === "ArrowLeft" ? "ArrowRight" : "ArrowLeft";
-    activeDirection = heldKeys[other] ? other : null;
-    nextHorizontalTime = activeDirection ? lastTime + settings.dasMs : Infinity;
-  }
+  handleHumanKeyUp(event.code, event.timeStamp);
 });
 pauseButton.addEventListener("click", event => { enableAudio(); togglePause(event.timeStamp); });
 
@@ -1248,46 +1292,56 @@ function canAdvanceSimulation() {
     && !document.hidden && !gameOver && !marathonComplete;
 }
 
-function advanceTime(time) {
-  if (heldKeys.ArrowDown && !softDropUsesRepeat()) {
-    nextSoftDropTime = Infinity;
-    softDropScheduledPiece = null;
-  } else if (softDropUsesRepeat() && softDropScheduledPiece !== piece) {
-    nextSoftDropTime = (lastTime ?? time) + settings.softDropMs;
-    softDropScheduledPiece = piece;
+function prepareHumanController(controller, state, time) {
+  if (controller.heldKeys.ArrowDown && !softDropUsesRepeat(controller, state)) {
+    controller.nextSoftDropTime = Infinity;
+    controller.softDropScheduledPiece = null;
+  } else if (softDropUsesRepeat(controller, state) && controller.softDropScheduledPiece !== state.piece) {
+    controller.nextSoftDropTime = (lastTime ?? time) + settings.softDropMs;
+    controller.softDropScheduledPiece = state.piece;
   }
   if (lastTime !== null && time - lastTime > MAX_INPUT_CATCHUP) {
     // 古い繰り返しは現在時刻の1回にまとめ、低更新頻度でも入力を進める。
-    if (activeDirection && nextHorizontalTime <= time) nextHorizontalTime = time;
-    if (softDropUsesRepeat() && nextSoftDropTime <= time) nextSoftDropTime = time;
+    if (controller.activeDirection && controller.nextHorizontalTime <= time) controller.nextHorizontalTime = time;
+    if (softDropUsesRepeat(controller, state) && controller.nextSoftDropTime <= time) controller.nextSoftDropTime = time;
   }
-  while (canAdvanceSimulation()) {
-    const due = Math.min(nextHorizontalTime, nextSoftDropTime);
-    if (due > time) break;
-    const pieceBeforeSimulation = piece;
-    advanceSimulation(due);
-    if (gameOver || marathonComplete) break;
-    if (piece !== pieceBeforeSimulation) {
-      nextSoftDropTime = softDropUsesRepeat() ? due + settings.softDropMs : Infinity;
-      softDropScheduledPiece = nextSoftDropTime < Infinity ? piece : null;
-    } else if (nextSoftDropTime === due && !softDropUsesRepeat()) {
-      nextSoftDropTime = Infinity;
-      softDropScheduledPiece = null;
-    }
-    if (nextHorizontalTime === due) {
-      move(activeDirection === "ArrowLeft" ? -1 : 1, 0);
-      nextHorizontalTime += settings.arrMs;
-    }
-    if (nextSoftDropTime === due) {
-      stepDown(true);
-      nextSoftDropTime += settings.softDropMs;
-    }
-    draw();
-  }
-  advanceSimulation(time);
 }
 
-function advanceSimulation(time) {
+function advanceHumanController(controller, time) {
+  if (controller.nextHorizontalTime === time) {
+    applyPlayerAction(controller.activeDirection === "ArrowLeft"
+      ? PLAYER_ACTIONS.MOVE_LEFT : PLAYER_ACTIONS.MOVE_RIGHT);
+    controller.nextHorizontalTime += settings.arrMs;
+  }
+  if (controller.nextSoftDropTime === time) {
+    applyPlayerAction(PLAYER_ACTIONS.SOFT_DROP);
+    controller.nextSoftDropTime += settings.softDropMs;
+  }
+}
+
+function advanceTime(time) {
+  prepareHumanController(humanController, currentPlayerState, time);
+  while (canAdvanceSimulation()) {
+    const due = Math.min(humanController.nextHorizontalTime, humanController.nextSoftDropTime);
+    if (due > time) break;
+    const pieceBeforeSimulation = piece;
+    advanceSimulation(due, { softDropActive: softDropUsesRepeat(humanController, currentPlayerState) });
+    if (gameOver || marathonComplete) break;
+    if (piece !== pieceBeforeSimulation) {
+      humanController.nextSoftDropTime = softDropUsesRepeat(humanController, currentPlayerState)
+        ? due + settings.softDropMs : Infinity;
+      humanController.softDropScheduledPiece = humanController.nextSoftDropTime < Infinity ? piece : null;
+    } else if (humanController.nextSoftDropTime === due && !softDropUsesRepeat(humanController, currentPlayerState)) {
+      humanController.nextSoftDropTime = Infinity;
+      humanController.softDropScheduledPiece = null;
+    }
+    advanceHumanController(humanController, due);
+    draw();
+  }
+  advanceSimulation(time, { softDropActive: softDropUsesRepeat(humanController, currentPlayerState) });
+}
+
+function advanceSimulation(time, { softDropActive = false } = {}) {
   if (lastTime === null) lastTime = time;
   // 同じフレーム内で入力が先に処理されても時間を巻き戻さない。
   time = Math.max(time, lastTime);
@@ -1314,7 +1368,7 @@ function advanceSimulation(time) {
         }
         break;
       }
-      if (softDropUsesRepeat()) break;
+      if (softDropActive) break;
       const gravityInterval = getGravityInterval();
       const elapsed = Math.min(remaining, gravityInterval - dropElapsed);
       dropElapsed += elapsed;
