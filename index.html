@@ -12,6 +12,7 @@
     <header class="heading">
       <p class="eyebrow">BLOCK PUZZLE</p>
       <h1>落ちものブロックパズル</h1>
+      <p id="vs-mode-label" class="vs-mode-label">YOU <span>VS</span> CPU</p>
     </header>
     <div class="game-shell">
     <div class="game-layout">
@@ -36,6 +37,7 @@
         </section>
       </aside>
       <section class="play-area" aria-label="ゲーム盤面">
+        <h2 id="human-player-title" class="vs-player-title">YOU</h2>
         <div id="vs-indicators" class="vs-indicators vs-incoming-indicator" hidden>
           <span>Human Incoming: <strong id="human-incoming">0</strong></span>
         </div>
@@ -92,14 +94,14 @@
         </div>
       </aside>
     </div>
-    <section id="dual-board-test" class="dual-board-test" aria-label="Dual Board Test" hidden>
+    <section id="dual-board-test" class="dual-board-test" aria-label="CPU player panel" hidden>
       <div class="dual-player-view">
         <h2 id="second-player-title">PLAYER 2</h2>
         <div id="cpu-incoming-indicator" class="vs-indicators vs-incoming-indicator" hidden>
           <span>CPU Incoming: <strong id="second-incoming">0</strong></span>
         </div>
         <div class="dual-player-layout">
-          <div class="dual-board-wrap"><canvas id="second-board" width="300" height="600" aria-label="Player 2のゲーム盤"></canvas><p id="second-status" class="dual-status" role="status"></p></div>
+          <div class="dual-board-wrap"><canvas id="second-board" width="300" height="600" aria-label="CPUのゲーム盤"></canvas><p id="second-status" class="dual-status" role="status"></p></div>
           <div class="dual-player-side">
             <section class="dual-preview"><h3>HOLD</h3><canvas id="second-hold" width="120" height="80" aria-label="Player 2のHOLD"></canvas></section>
             <section class="dual-preview"><h3>NEXT</h3><canvas id="second-next" width="120" height="200" aria-label="Player 2のNEXT"></canvas></section>

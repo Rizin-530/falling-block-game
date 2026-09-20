@@ -1122,6 +1122,7 @@ function startDualBoardTest() {
   selectedStartLevel = 1;
   isQaRun = true;
   publicVsActive = false;
+  dualBoardTestElement.classList.remove("public-vs");
   dualBoardTestActive = true;
   cpuTestActive = false;
   vsEngineTestActive = false;
@@ -1156,6 +1157,7 @@ function startCpuTest() {
   selectedStartLevel = 1;
   isQaRun = true;
   publicVsActive = false;
+  dualBoardTestElement.classList.remove("public-vs");
   dualBoardTestActive = true;
   cpuTestActive = true;
   vsEngineTestActive = false;
@@ -1189,6 +1191,7 @@ function startCpuTest() {
 function startFreshVsMatch({ seed, publicMode = false } = {}) {
   selectedStartLevel = 1;
   publicVsActive = Boolean(publicMode);
+  dualBoardTestElement.classList.toggle("public-vs", publicVsActive);
   isQaRun = !publicVsActive;
   dualBoardTestActive = true;
   cpuTestActive = true;
@@ -1235,6 +1238,7 @@ function exitVsMatch() {
   vsMatchState = createVsMatchState();
   vsEngineTestActive = false;
   publicVsActive = false;
+  dualBoardTestElement.classList.remove("public-vs");
   dualBoardTestActive = false;
   cpuTestActive = false;
   secondaryPlayerState = null;
@@ -1264,6 +1268,7 @@ function exitDualBoardTest() {
   cpuTestActive = false;
   vsEngineTestActive = false;
   publicVsActive = false;
+  dualBoardTestElement.classList.remove("public-vs");
   secondaryPlayerState = null;
   cpuController = createCpuControllerState();
   attackGarbageState = createAttackGarbageState();
@@ -2041,7 +2046,7 @@ function renderPlayer(state, view, { completed = false } = {}) {
     }));
   }
   if (view.scoreElement) view.scoreElement.textContent = state.score;
-  if (view.linesElement) view.linesElement.textContent = view.showMarathonTarget
+  if (view.linesElement) view.linesElement.textContent = view.showMarathonTarget && !publicVsActive
     ? `${state.totalLines} / ${MARATHON_TARGET_LINES}` : state.totalLines;
   if (view.levelElement) view.levelElement.textContent = state.level;
   if (view.statusElement) view.statusElement.textContent = state.gameOver

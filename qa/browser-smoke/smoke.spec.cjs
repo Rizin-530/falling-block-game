@@ -295,8 +295,13 @@ test("public VS CPU starts from Start Screen without QA or Marathon mode", async
   await expect(page.locator("#dual-board-test")).toBeVisible();
   await expect(page.locator("#board")).toBeVisible();
   await expect(page.locator("#second-board")).toBeVisible();
+  await expect(page.locator("#vs-mode-label")).toHaveText("YOU VS CPU");
+  await expect(page.locator("#human-player-title")).toHaveText("YOU");
   await expect(page.locator("#second-player-title")).toHaveText("CPU");
   await expect(page.locator("#second-status")).toHaveText("CPU");
+  await expect(page.locator("#second-hold")).toBeHidden();
+  await expect(page.locator("#high-score")).toBeHidden();
+  await expect(page.locator("#lines")).toHaveText("0");
   await expect(page.locator("#qa-run")).toBeHidden();
   await expect(page.locator("#results")).toBeHidden();
   await expect(page.locator("#vs-results")).toBeHidden();
@@ -309,6 +314,14 @@ test("public VS CPU starts from Start Screen without QA or Marathon mode", async
   expect(desktopBoxes[1].x).toBeGreaterThan(desktopBoxes[0].x);
   expect(desktopBoxes[0].x + desktopBoxes[0].width <= desktopBoxes[1].x
     || desktopBoxes[1].x + desktopBoxes[1].width <= desktopBoxes[0].x).toBe(true);
+  expect(Math.abs(desktopBoxes[0].y - desktopBoxes[1].y)).toBeLessThan(40);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const wideBoxes = await Promise.all([page.locator("#board").boundingBox(), page.locator("#second-board").boundingBox()]);
+  expect(wideBoxes[0]).not.toBeNull();
+  expect(wideBoxes[1]).not.toBeNull();
+  expect(wideBoxes[1].x).toBeGreaterThan(wideBoxes[0].x);
+  expect(wideBoxes[0].width).toBeLessThanOrEqual(302);
+  expect(wideBoxes[1].width).toBeLessThanOrEqual(302);
 
   // DEV TOOLS and its VS fixtures are unavailable while the public match is active.
   await expect(page.locator("#qa-overlay")).toBeHidden();

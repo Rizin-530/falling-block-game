@@ -19,6 +19,7 @@ p, h1, h2, dl, dd { margin: 0; }
 .eyebrow { color: #969ba5; font-size: 11px; font-weight: 600; letter-spacing: 0.22em; margin-bottom: 8px; }
 h1 { font-size: 22px; font-weight: 600; letter-spacing: 0.04em; }
 .game-shell { display: block; }
+.vs-mode-label, .vs-player-title { display: none; }
 h2 { color: #adb1ba; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; }
 .game-layout {
   display: grid;
@@ -135,18 +136,77 @@ button:disabled { opacity: 0.4; cursor: default; }
   main:has(#dual-board-test:not([hidden])) { max-width: 1280px; }
   .game-shell:has(#dual-board-test:not([hidden])) {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
     gap: 24px;
     align-items: start;
   }
   .game-shell:has(#dual-board-test:not([hidden])) > .game-layout {
-    grid-template-columns: 180px calc(var(--board-width) + 2px);
-    gap: 16px;
+    grid-template-columns: 152px calc(var(--board-width) + 2px) 152px;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid #292b30;
+    border-radius: 8px;
+    background: #121316;
     justify-content: start;
   }
-  .game-shell:has(#dual-board-test:not([hidden])) .left-panel { grid-column: 1; grid-row: 1; }
-  .game-shell:has(#dual-board-test:not([hidden])) .play-area { grid-column: 2; grid-row: 1 / span 2; }
-  .game-shell:has(#dual-board-test:not([hidden])) .right-panel { grid-column: 1; grid-row: 2; }
+  .game-shell:has(#dual-board-test:not([hidden])) .left-panel { display: contents; }
+  .game-shell:has(#dual-board-test:not([hidden])) .left-panel > .preview-panel { grid-column: 1; grid-row: 1; }
+  .game-shell:has(#dual-board-test:not([hidden])) .left-panel > .controls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding: 10px 12px;
+  }
+  .game-shell:has(#dual-board-test:not([hidden])) .controls dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px 12px;
+    margin-top: 10px;
+  }
+  .game-shell:has(#dual-board-test:not([hidden])) .play-area { grid-column: 2; grid-row: 1; }
+  .game-shell:has(#dual-board-test:not([hidden])) .right-panel { grid-column: 3; grid-row: 1; }
+  main:has(#dual-board-test.public-vs:not([hidden])) .vs-mode-label,
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .vs-player-title { display: block; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .vs-player-title {
+    margin-bottom: 8px;
+    color: #ededee;
+  }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .stat-high { display: none; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .stats .stat-wide { grid-column: auto; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .stats > .stat:nth-of-type(3) { order: 3; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .stats > .stat:nth-of-type(4) { order: 2; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) > .dual-board-test:not([hidden]) { display: contents; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .dual-player-view {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid #292b30;
+    border-radius: 8px;
+    background: #121316;
+  }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .dual-player-side .dual-preview:first-child { display: none; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) #second-board { width: min(100%, var(--board-width)); }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .dual-player-layout { grid-template-columns: minmax(180px, calc(var(--board-width) + 2px)) minmax(140px, 180px); }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) #dual-exit {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+    margin-top: 8px;
+    color: #969ba5;
+    font-size: 10px;
+  }
+  .vs-mode-label {
+    display: block;
+    margin-top: 8px;
+    color: #969ba5;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+  }
+  .vs-mode-label span { color: #d5b3f2; }
   .game-shell:has(#dual-board-test:not([hidden])) > .dual-board-test {
     width: auto;
     margin: 0;
@@ -154,6 +214,18 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 @media (max-width: 980px) {
   .game-shell:has(#dual-board-test:not([hidden])) > .dual-board-test { margin-top: 14px; }
+  main:has(#dual-board-test.public-vs:not([hidden])) .stat-high { display: none; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) > .dual-board-test:not([hidden]) { display: contents; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .dual-player-view {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid #292b30;
+    border-radius: 8px;
+    background: #121316;
+  }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) .dual-player-side .dual-preview:first-child { display: none; }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) #second-board { width: min(100%, var(--board-width)); }
+  .game-shell:has(#dual-board-test.public-vs:not([hidden])) #dual-exit { margin-top: 8px; }
 }
 .start-overlay { position: fixed; z-index: 5; inset: 0; display: grid; place-items: center; padding: 20px; background: #08090be6; overflow-y: auto; }
 .start-overlay[hidden] { display: none; }
