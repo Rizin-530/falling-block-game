@@ -156,3 +156,21 @@ test("DEV TOOLS DUAL BOARD TEST renders an isolated second player view", async (
   await expect(page.locator("#second-board")).toBeVisible();
   await assertNoRuntimeIssues(issues);
 });
+
+test("DEV TOOLS CPU TEST runs an isolated CPU player", async ({ page }) => {
+  const issues = captureRuntimeIssues(page);
+  await startGame(page);
+  await page.locator("#open-dev-tools").click();
+  await expect(page.locator("#qa-overlay")).toBeVisible();
+  await page.locator("#qa-cpu").click();
+  await expect(page.locator("#qa-overlay")).toBeHidden();
+  await expect(page.locator("#board")).toBeVisible();
+  await expect(page.locator("#second-board")).toBeVisible();
+  await expect(page.locator("#second-status")).toContainText("CPU v0.1");
+  await expect.poll(async () => Number(await page.locator("#second-score").textContent()), { timeout: 4000 }).toBeGreaterThan(0);
+  await page.keyboard.press("p");
+  await expect(page.locator("#pause-visual")).toBeVisible();
+  await page.keyboard.press("p");
+  await expect(page.locator("#pause-visual")).toBeHidden();
+  await assertNoRuntimeIssues(issues);
+});

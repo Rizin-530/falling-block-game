@@ -6,6 +6,17 @@ const HIDDEN_ROWS = 20;
 const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
 const NEXT_COUNT = 5;
 const MARATHON_TARGET_LINES = 150;
+const CPU_V0_1_CONFIG = Object.freeze({
+  thinkDelayMs: 240,
+  actionIntervalMs: 90,
+  lineReward: 1000,
+  holePenalty: 45,
+  aggregateHeightPenalty: 4,
+  maximumHeightPenalty: 7,
+  bumpinessPenalty: 3,
+  terminalPenalty: 1000000,
+  maxSearchStates: 5000,
+});
 const LINE_CLEAR_SCORES = [0, 100, 300, 500, 800];
 const PERFECT_CLEAR_SCORES = [0, 800, 1200, 1800, 2000];
 const B2B_TETRIS_PERFECT_CLEAR_SCORE = 3200;
@@ -173,6 +184,7 @@ const secondStatusElement = document.getElementById("second-status");
 const qaScenarioButtons = [
   document.getElementById("qa-149"), document.getElementById("qa-clear"),
   document.getElementById("qa-force-i"), document.getElementById("qa-top-out"), document.getElementById("qa-dual"),
+  document.getElementById("qa-cpu"),
 ];
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
@@ -226,8 +238,10 @@ function createPlayerState({ selectedStartLevel = 1, initialize = true } = {}) {
 
 let currentPlayerState = createPlayerState({ initialize: false });
 let dualBoardTestActive = false;
+let cpuTestActive = false;
 let secondaryPlayerState = null;
 let dualFrameTime = null;
+let cpuController = null;
 const PLAYER_STATE_FIELDS = [
   "board", "piece", "score", "gameOver", "nextQueue", "heldType", "holdUsed",
   "totalLines", "level", "dropElapsed", "lockElapsed", "lockResets", "bag",
@@ -574,12 +588,186 @@ function advancePreviewSimulation(state, elapsed) {
   }
 }
 
+function clonePlayerStateForSimulation(state) {
+  return {
+    ...state,
+    board: state.board.map(row => row.slice()),
+    piece: state.piece ? {
+      ...state.piece,
+      shape: state.piece.shape.map(row => row.slice()),
+    } : null,
+    nextQueue: state.nextQueue.slice(),
+    bag: state.bag.slice(),
+    lastLockResult: state.lastLockResult ? { ...state.lastLockResult } : null,
+    runStats: { ...state.runStats },
+  };
+}
+
+function analyzeBoardForCpu(board, completedLines = 0) {
+  const heights = Array(COLS).fill(0);
+  let holes = 0;
+  for (let x = 0; x < COLS; x++) {
+    let foundBlock = false;
+    for (let y = 0; y < TOTAL_ROWS; y++) {
+      if (board[y][x]) {
+        if (!foundBlock) {
+          heights[x] = TOTAL_ROWS - y;
+          foundBlock = true;
+        }
+      } else if (foundBlock) {
+        holes++;
+      }
+    }
+  }
+  const aggregateHeight = heights.reduce((sum, height) => sum + height, 0);
+  const maximumHeight = Math.max(...heights);
+  const bumpiness = heights.slice(1).reduce((sum, height, index) => sum + Math.abs(height - heights[index]), 0);
+  return { completedLines, holes, heights, aggregateHeight, maximumHeight, bumpiness };
+}
+
+function evaluateCpuCandidate(metrics, terminal) {
+  const value = metrics.completedLines * CPU_V0_1_CONFIG.lineReward
+    - metrics.holes * CPU_V0_1_CONFIG.holePenalty
+    - metrics.aggregateHeight * CPU_V0_1_CONFIG.aggregateHeightPenalty
+    - metrics.maximumHeight * CPU_V0_1_CONFIG.maximumHeightPenalty
+    - metrics.bumpiness * CPU_V0_1_CONFIG.bumpinessPenalty;
+  return terminal ? value - CPU_V0_1_CONFIG.terminalPenalty : value;
+}
+
+function isBetterCpuCandidate(candidate, current) {
+  if (!current) return true;
+  if (candidate.evaluation !== current.evaluation) return candidate.evaluation > current.evaluation;
+  if (candidate.actions.length !== current.actions.length) return candidate.actions.length < current.actions.length;
+  if (candidate.finalRotation !== current.finalRotation) return candidate.finalRotation < current.finalRotation;
+  if (candidate.finalX !== current.finalX) return candidate.finalX < current.finalX;
+  return candidate.order < current.order;
+}
+
+function planCpuPlacement(state) {
+  if (!state || !state.piece || state.gameOver) {
+    return { actions: [], evaluation: -Infinity, finalX: null, finalRotation: null, landingY: null, metrics: null, candidateCount: 0 };
+  }
+  const searchActions = [PLAYER_ACTIONS.ROTATE_CW, PLAYER_ACTIONS.ROTATE_CCW,
+    PLAYER_ACTIONS.MOVE_LEFT, PLAYER_ACTIONS.MOVE_RIGHT];
+  const queue = [{ state: clonePlayerStateForSimulation(state), actions: [] }];
+  const visited = new Set([`${state.piece.x},${state.piece.y},${state.piece.rotation}`]);
+  let candidateCount = 0;
+  let order = 0;
+  let best = null;
+  while (queue.length > 0 && visited.size <= CPU_V0_1_CONFIG.maxSearchStates) {
+    const node = queue.shift();
+    const landingY = landingYOn(node.state.board, node.state.piece);
+    const candidateState = clonePlayerStateForSimulation(node.state);
+    candidateState.piece.y = landingY;
+    const result = resolveLockFor(candidateState);
+    const metrics = analyzeBoardForCpu(candidateState.board, result.lines);
+    const candidate = {
+      actions: [...node.actions, PLAYER_ACTIONS.HARD_DROP],
+      evaluation: evaluateCpuCandidate(metrics, result.terminal),
+      finalX: node.state.piece.x,
+      finalRotation: node.state.piece.rotation,
+      landingY,
+      metrics,
+      terminal: result.terminal,
+      order: order++,
+    };
+    candidateCount++;
+    if (isBetterCpuCandidate(candidate, best)) best = candidate;
+
+    for (const action of searchActions) {
+      const next = clonePlayerStateForSimulation(node.state);
+      if (!applyPlayerActionFor(next, action)) continue;
+      const key = `${next.piece.x},${next.piece.y},${next.piece.rotation}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      queue.push({ state: next, actions: [...node.actions, action] });
+    }
+  }
+  if (!best) {
+    return { actions: [], evaluation: -Infinity, finalX: null, finalRotation: null, landingY: null, metrics: null, candidateCount };
+  }
+  return { ...best, candidateCount };
+}
+
+function createCpuControllerState({ enabled = false } = {}) {
+  return {
+    enabled,
+    plannedPiece: null,
+    actionQueue: [],
+    thinkElapsed: 0,
+    actionElapsed: 0,
+    needsPlan: true,
+    lastPlan: null,
+    diagnosticStatus: enabled ? "THINKING" : "IDLE",
+  };
+}
+
+function resetCpuPlan(controller, status = "THINKING") {
+  controller.plannedPiece = null;
+  controller.actionQueue = [];
+  controller.thinkElapsed = 0;
+  controller.actionElapsed = 0;
+  controller.needsPlan = true;
+  controller.lastPlan = null;
+  controller.diagnosticStatus = status;
+}
+
+function advanceCpuController(controller, state, elapsed) {
+  if (!controller || !controller.enabled || !state || elapsed <= 0) return;
+  if (state.gameOver) {
+    controller.enabled = false;
+    controller.actionQueue = [];
+    controller.diagnosticStatus = "TOP OUT";
+    return;
+  }
+  if (controller.plannedPiece && controller.plannedPiece !== state.piece) resetCpuPlan(controller);
+  if (controller.needsPlan) {
+    controller.thinkElapsed += elapsed;
+    controller.diagnosticStatus = "THINKING";
+    if (controller.thinkElapsed < CPU_V0_1_CONFIG.thinkDelayMs) return;
+    controller.thinkElapsed = 0;
+    controller.lastPlan = planCpuPlacement(state);
+    controller.actionQueue = controller.lastPlan.actions.slice();
+    controller.plannedPiece = state.piece;
+    controller.actionElapsed = 0;
+    controller.needsPlan = false;
+    controller.diagnosticStatus = controller.actionQueue.length ? "EXECUTING" : "NO PLAN";
+    return;
+  }
+  controller.actionElapsed += elapsed;
+  if (controller.actionElapsed < CPU_V0_1_CONFIG.actionIntervalMs) return;
+  controller.actionElapsed = 0;
+  const action = controller.actionQueue.shift();
+  if (!action) {
+    resetCpuPlan(controller);
+    return;
+  }
+  const pieceBefore = state.piece;
+  if (!applyPlayerActionFor(state, action)) {
+    resetCpuPlan(controller, "REPLAN");
+    return;
+  }
+  if (state.gameOver) {
+    controller.enabled = false;
+    controller.actionQueue = [];
+    controller.diagnosticStatus = "TOP OUT";
+    return;
+  }
+  if (state.piece !== pieceBefore) {
+    resetCpuPlan(controller);
+    return;
+  }
+  if (controller.actionQueue.length === 0) resetCpuPlan(controller);
+}
+
 function startDualBoardTest() {
   selectedStartLevel = 1;
   isQaRun = true;
   dualBoardTestActive = true;
+  cpuTestActive = false;
   restart();
   secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
+  cpuController = createCpuControllerState();
   dualFrameTime = null;
   qaOpen = false;
   qaWasPaused = false;
@@ -593,17 +781,47 @@ function startDualBoardTest() {
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   dualBoardTestElement.hidden = false;
+  secondView.statusText = "";
+  updatePauseVisual();
+  draw();
+}
+
+function startCpuTest() {
+  selectedStartLevel = 1;
+  isQaRun = true;
+  dualBoardTestActive = true;
+  cpuTestActive = true;
+  restart();
+  secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
+  cpuController = createCpuControllerState({ enabled: true });
+  dualFrameTime = null;
+  qaOpen = false;
+  qaWasPaused = false;
+  qaOverlay.hidden = true;
+  startScreenOpen = false;
+  startOverlay.hidden = true;
+  startOverlay.inert = false;
+  gameUiElement.inert = false;
+  paused = false;
+  statusElement.textContent = "CPU TEST";
+  pauseButton.disabled = false;
+  pauseButton.textContent = "一時停止（P）";
+  secondView.statusText = "CPU v0.1";
+  dualBoardTestElement.hidden = false;
   updatePauseVisual();
   draw();
 }
 
 function exitDualBoardTest() {
   dualBoardTestActive = false;
+  cpuTestActive = false;
   secondaryPlayerState = null;
+  cpuController = createCpuControllerState();
   dualFrameTime = null;
   dualBoardTestElement.hidden = true;
   isQaRun = false;
   selectedStartLevel = 1;
+  secondView.statusText = "";
   restart();
 }
 
@@ -809,7 +1027,7 @@ function advancePiece() {
 }
 
 function holdPlayer(state) {
-  if (state.holdUsed) return;
+  if (state.holdUsed || !state.piece) return false;
   const type = state.piece.color - 1;
   if (state.heldType === null) {
     state.heldType = type;
@@ -820,6 +1038,7 @@ function holdPlayer(state) {
     spawnPieceFor(state, previous);
   }
   state.holdUsed = true;
+  return true;
 }
 
 function hold() {
@@ -946,8 +1165,9 @@ function rotatePlayer(state, direction = 1) {
     state.piece.rotation = rotation;
     state.lastRotationKick = kickIndex;
     if (wasGrounded) resetLockDelayFor(state);
-    return;
+    return true;
   }
+  return false;
 }
 
 function rotate(direction = 1) {
@@ -1144,6 +1364,16 @@ function hardDrop() {
   lockPiece();
 }
 
+function hardDropPlayer(state) {
+  if (!state || state.gameOver || !state.piece) return false;
+  let distance = 0;
+  while (movePlayer(state, 0, 1)) distance++;
+  state.score += distance * 2;
+  const result = resolveLockFor(state);
+  if (!result.terminal) advancePieceFor(state);
+  return { result, distance };
+}
+
 function drawCellOn(targetContext, x, y, color) {
   if (y < HIDDEN_ROWS || y >= TOTAL_ROWS) return;
   const visibleY = y - HIDDEN_ROWS;
@@ -1155,13 +1385,13 @@ function drawCell(x, y, color) {
   drawCellOn(context, x, y, color);
 }
 
-function createPlayerView({ boardCanvas, boardContext, holdCanvas, nextCanvas, scoreElement, linesElement, levelElement, showMarathonTarget = false, statusElement = null }) {
+function createPlayerView({ boardCanvas, boardContext, holdCanvas, nextCanvas, scoreElement, linesElement, levelElement, showMarathonTarget = false, statusElement = null, statusText = "" }) {
   return {
     boardCanvas, boardContext, holdCanvas,
     get holdContext() { return holdCanvas.getContext("2d"); },
     nextCanvas,
     get nextContext() { return nextCanvas.getContext("2d"); },
-    scoreElement, linesElement, levelElement, showMarathonTarget, statusElement,
+    scoreElement, linesElement, levelElement, showMarathonTarget, statusElement, statusText,
   };
 }
 
@@ -1202,7 +1432,8 @@ function renderPlayer(state, view, { completed = false } = {}) {
   if (view.linesElement) view.linesElement.textContent = view.showMarathonTarget
     ? `${state.totalLines} / ${MARATHON_TARGET_LINES}` : state.totalLines;
   if (view.levelElement) view.levelElement.textContent = state.level;
-  if (view.statusElement) view.statusElement.textContent = state.gameOver ? "TOP OUT" : "";
+  if (view.statusElement) view.statusElement.textContent = state.gameOver
+    ? `${view.statusText}${view.statusText ? " — " : ""}TOP OUT` : view.statusText;
 }
 
 function drawPreview(id, types) {
@@ -1231,6 +1462,8 @@ function restart() {
   marathonComplete = false;
   paused = false;
   if (dualBoardTestActive) secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
+  cpuController = createCpuControllerState({ enabled: cpuTestActive });
+  if (secondView) secondView.statusText = cpuTestActive ? "CPU v0.1" : "";
   dualFrameTime = null;
   updatePauseVisual();
   levelElement.textContent = level;
@@ -1261,6 +1494,18 @@ const HUMAN_KEY_ACTIONS = Object.freeze({
   Space: PLAYER_ACTIONS.HARD_DROP,
   KeyC: PLAYER_ACTIONS.HOLD,
 });
+
+function applyPlayerActionFor(state, action) {
+  switch (action) {
+    case PLAYER_ACTIONS.MOVE_LEFT: return movePlayer(state, -1, 0);
+    case PLAYER_ACTIONS.MOVE_RIGHT: return movePlayer(state, 1, 0);
+    case PLAYER_ACTIONS.ROTATE_CW: return rotatePlayer(state, 1);
+    case PLAYER_ACTIONS.ROTATE_CCW: return rotatePlayer(state, -1);
+    case PLAYER_ACTIONS.HARD_DROP: return hardDropPlayer(state);
+    case PLAYER_ACTIONS.HOLD: return holdPlayer(state);
+    default: return false;
+  }
+}
 
 function applyPlayerAction(action) {
   switch (action) {
@@ -1373,6 +1618,7 @@ document.getElementById("qa-clear").addEventListener("click", clearQaBoard);
 document.getElementById("qa-force-i").addEventListener("click", forceQaI);
 document.getElementById("qa-top-out").addEventListener("click", loadQaTopOut);
 document.getElementById("qa-dual").addEventListener("click", startDualBoardTest);
+document.getElementById("qa-cpu").addEventListener("click", startCpuTest);
 document.getElementById("dual-exit").addEventListener("click", exitDualBoardTest);
 qaResetButton.addEventListener("click", () => {
   isQaRun = false;
@@ -1512,7 +1758,9 @@ function update(time) {
   const humanSimulationActive = canAdvanceSimulation();
   advanceTime(time);
   if (dualBoardTestActive && secondaryPlayerState && humanSimulationActive && previousFrameTime !== null) {
-    advancePreviewSimulation(secondaryPlayerState, Math.max(0, time - previousFrameTime));
+    const elapsed = Math.max(0, time - previousFrameTime);
+    advancePreviewSimulation(secondaryPlayerState, elapsed);
+    if (cpuTestActive) advanceCpuController(cpuController, secondaryPlayerState, elapsed);
     renderPlayer(secondaryPlayerState, secondView);
   }
   dualFrameTime = time;

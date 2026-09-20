@@ -1342,6 +1342,137 @@ dualPlayerTests(`
 `);
 console.log("PASS: dual PlayerState independence, state-aware preview simulation, renderer purity/isolation and Marathon/High Score isolation.");
 
+const cpuControllerTests = createGame();
+cpuControllerTests(`
+  const cpuState = createPlayerState({ initialize: true });
+  cpuState.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  cpuState.piece = { shape: ROTATIONS[0][0].map(row => row.slice()), rotation:0, x:3, y:SPAWN_Y, color:1 };
+  cpuState.nextQueue = [6, 5, 4, 3, 2];
+  cpuState.bag = [1, 0];
+  cpuState.heldType = 2;
+  const liveSnapshot = JSON.stringify(cpuState);
+  const clone = clonePlayerStateForSimulation(cpuState);
+  clone.board[0][0] = 7; clone.board[0] = clone.board[0].slice();
+  clone.piece.x = 0; clone.nextQueue[0] = 0; clone.bag.push(6); clone.runStats.tetrises = 4;
+  assert.equal(JSON.stringify(cpuState), liveSnapshot);
+  assert.notEqual(clone.board, cpuState.board);
+  assert.notEqual(clone.board[0], cpuState.board[0]);
+  assert.notEqual(clone.piece, cpuState.piece);
+  assert.notEqual(clone.nextQueue, cpuState.nextQueue);
+  assert.notEqual(clone.runStats, cpuState.runStats);
+
+  const planBefore = planCpuPlacement(cpuState);
+  assert.ok(planBefore.actions.length > 0);
+  assert.equal(planBefore.actions.at(-1), PLAYER_ACTIONS.HARD_DROP);
+  assert.equal(planBefore.actions.includes(PLAYER_ACTIONS.HOLD), false);
+  assert.ok(planBefore.candidateCount > 0 && planBefore.candidateCount <= CPU_V0_1_CONFIG.maxSearchStates);
+  assert.equal(JSON.stringify(cpuState), liveSnapshot);
+  const planAgain = planCpuPlacement(cpuState);
+  assert.deepEqual(planAgain, planBefore);
+
+  const queueVariant = clonePlayerStateForSimulation(cpuState);
+  queueVariant.nextQueue.reverse(); queueVariant.bag.reverse(); queueVariant.heldType = null; queueVariant.holdUsed = true;
+  assert.deepEqual(planCpuPlacement(queueVariant), planBefore);
+  currentPlayerState.score = 999999; currentPlayerState.board[0][0] = 7;
+  assert.deepEqual(planCpuPlacement(cpuState), planBefore);
+  const humanBeforeCpu = JSON.stringify(currentPlayerState);
+  advanceCpuController(createCpuControllerState({ enabled:true }), cpuState, CPU_V0_1_CONFIG.thinkDelayMs);
+  assert.equal(JSON.stringify(currentPlayerState), humanBeforeCpu);
+
+  const replay = clonePlayerStateForSimulation(cpuState);
+  const preDropActions = planBefore.actions.slice(0, -1);
+  for (const action of preDropActions) assert.ok(applyPlayerActionFor(replay, action));
+  assert.equal(replay.piece.x, planBefore.finalX);
+  assert.equal(replay.piece.rotation, planBefore.finalRotation);
+  assert.equal(landingYOn(replay.board, replay.piece), planBefore.landingY);
+  const hardDropResult = applyPlayerActionFor(replay, PLAYER_ACTIONS.HARD_DROP);
+  assert.ok(hardDropResult);
+  assert.equal(replay.score >= 0, true);
+
+  const oneLineBoard = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  for (let x = 0; x < COLS; x++) if (x < 3 || x > 6) oneLineBoard[TOTAL_ROWS - 1][x] = 1;
+  const lineState = clonePlayerStateForSimulation(cpuState);
+  lineState.board = oneLineBoard;
+  lineState.piece = { shape: ROTATIONS[0][0].map(row => row.slice()), rotation:0, x:3, y:SPAWN_Y, color:1 };
+  const linePlan = planCpuPlacement(lineState);
+  assert.equal(linePlan.metrics.completedLines, 1);
+  assert.equal(linePlan.finalRotation, 0);
+  assert.equal(linePlan.finalX, 3);
+
+  const flatMetrics = analyzeBoardForCpu(Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0)));
+  const holeBoard = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  holeBoard[TOTAL_ROWS - 3][0] = 1; holeBoard[TOTAL_ROWS - 1][0] = 1;
+  const holeMetrics = analyzeBoardForCpu(holeBoard);
+  assert.equal(holeMetrics.holes, 1);
+  assert.ok(evaluateCpuCandidate(flatMetrics, false) > evaluateCpuCandidate(holeMetrics, false));
+  assert.ok(evaluateCpuCandidate(flatMetrics, false) > evaluateCpuCandidate(flatMetrics, true));
+
+  const scheduler = createCpuControllerState({ enabled:true });
+  const schedulerState = createPlayerState();
+  const schedulerPiece = schedulerState.piece;
+  advanceCpuController(scheduler, schedulerState, CPU_V0_1_CONFIG.thinkDelayMs - 1);
+  assert.equal(scheduler.lastPlan, null);
+  assert.equal(schedulerState.piece, schedulerPiece);
+  advanceCpuController(scheduler, schedulerState, 1);
+  assert.ok(scheduler.lastPlan);
+  assert.equal(schedulerState.piece, schedulerPiece);
+  const queueAfterPlan = scheduler.actionQueue.length;
+  advanceCpuController(scheduler, schedulerState, CPU_V0_1_CONFIG.actionIntervalMs - 1);
+  assert.equal(scheduler.actionQueue.length, queueAfterPlan);
+  advanceCpuController(scheduler, schedulerState, 1);
+  assert.ok(scheduler.actionQueue.length < queueAfterPlan || schedulerState.piece !== schedulerPiece);
+
+  const blocked = createCpuControllerState({ enabled:true });
+  const blockedState = createPlayerState();
+  blockedState.piece.x = 0;
+  blockedState.board[blockedState.piece.y + 1][0] = 7;
+  blocked.plannedPiece = blockedState.piece;
+  blocked.needsPlan = false;
+  blocked.actionQueue = [PLAYER_ACTIONS.MOVE_LEFT];
+  blocked.actionElapsed = CPU_V0_1_CONFIG.actionIntervalMs - 1;
+  advanceCpuController(blocked, blockedState, 1);
+  assert.equal(blocked.needsPlan, true);
+  assert.deepEqual(blocked.actionQueue, []);
+
+  const oldPlan = createCpuControllerState({ enabled:true });
+  const oldPlanState = createPlayerState();
+  oldPlan.plannedPiece = oldPlanState.piece;
+  oldPlan.needsPlan = false;
+  oldPlan.actionQueue = [PLAYER_ACTIONS.MOVE_RIGHT];
+  oldPlanState.piece = { ...oldPlanState.piece, x: oldPlanState.piece.x };
+  advanceCpuController(oldPlan, oldPlanState, 1);
+  assert.equal(oldPlan.needsPlan, true);
+  assert.deepEqual(oldPlan.actionQueue, []);
+
+  const controllerA = createCpuControllerState({ enabled:true });
+  const controllerB = createCpuControllerState({ enabled:true });
+  controllerA.actionQueue.push(PLAYER_ACTIONS.MOVE_LEFT);
+  controllerA.thinkElapsed = 10;
+  assert.deepEqual(controllerB.actionQueue, []);
+  assert.equal(controllerB.thinkElapsed, 0);
+
+  const longRunState = createPlayerState();
+  const longRunController = createCpuControllerState({ enabled:true });
+  let spawnedPieces = 0;
+  let previousPiece = longRunState.piece;
+  for (let elapsed = 0; elapsed < 10000 && spawnedPieces < 2; elapsed += 16) {
+    advancePreviewSimulation(longRunState, 16);
+    advanceCpuController(longRunController, longRunState, 16);
+    if (longRunState.piece !== previousPiece) { spawnedPieces++; previousPiece = longRunState.piece; }
+  }
+  assert.ok(spawnedPieces >= 2);
+
+  startCpuTest();
+  cpuController.actionQueue = [PLAYER_ACTIONS.MOVE_LEFT];
+  cpuController.thinkElapsed = 120;
+  restart();
+  assert.equal(cpuController.enabled, true);
+  assert.deepEqual(cpuController.actionQueue, []);
+  assert.equal(cpuController.thinkElapsed, 0);
+  exitDualBoardTest();
+`);
+console.log("PASS: CPU v0.1 cloning, deterministic reachable planning, heuristic metrics, action replay, scheduler timing and isolation.");
+
 // 別々のVMが同じ保存領域を使い、他画面の更新を知らない状態を再現する。
 const highScoreKey = "falling-block-high-score";
 for (const [initial, points, expected] of [[undefined,100,100],["100",500,500],["500",100,500]]) {
