@@ -266,3 +266,20 @@ test("VS Results show winner stats, freeze the match, then support REMATCH and E
   await expect(page.locator("#results")).toBeHidden();
   await assertNoRuntimeIssues(issues);
 });
+
+test("VS transactional fixture settles Human and CPU in one window and defers new garbage", async ({ page }) => {
+  const issues = captureRuntimeIssues(page);
+  await startGame(page);
+  await page.locator("#open-dev-tools").click();
+  await page.locator("#qa-vs-engine").click();
+  await page.locator("#open-dev-tools").click();
+  await expect(page.locator("#qa-transactional-lock")).toBeVisible();
+  await page.locator("#qa-transactional-lock").click();
+  await expect(page.locator("#qa-overlay")).toBeHidden();
+  await expect.poll(async () => page.locator("#second-incoming").textContent()).toBe("4");
+  await expect(page.locator("#human-incoming")).toHaveText("0");
+  await expect(page.locator("#vs-results")).toBeHidden();
+  await expect(page.locator("#second-board")).toBeVisible();
+  await expect(page.locator("#second-status")).not.toContainText(/WIN|LOSE|DRAW/);
+  await assertNoRuntimeIssues(issues);
+});

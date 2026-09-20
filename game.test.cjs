@@ -3679,7 +3679,10 @@ vsMatchTests(`
   assert.equal(resolveVsOutcome(true, false), VS_OUTCOMES.CPU_WIN);
   assert.equal(resolveVsOutcome(true, true), VS_OUTCOMES.DRAW);
   const matchFactoryState = createVsMatchState({ active: true });
-  assert.deepEqual(matchFactoryState, { active: true, finished: false, outcome: null, resultSnapshot: null });
+  assert.deepEqual(matchFactoryState, {
+    active: true, finished: false, outcome: null, resultSnapshot: null,
+    pendingLocks: { human: null, cpu: null }, settling: false,
+  });
 
   // CPU terminalのみでHumanが勝ち、VS ResultsはMarathon Resultsと分離される。
   startGame(); openQa(0); startVsEngineTest();
@@ -3750,3 +3753,234 @@ vsMatchTests(`
   assert.equal(startScreenOpen, false); assert.equal(gameOver, false); assert.equal(resultsElement.hidden, true);
 `);
 console.log("PASS: Phase 7B outcome mapping, VS Results snapshot/freeze, Rematch, Exit cleanup and Normal Marathon isolation.");
+
+const vsTransactionalTests = createGame();
+vsTransactionalTests(`
+  function setupVsLineState(state, lines) {
+    state.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    state.board[0][0] = 7;
+    for (let y = TOTAL_ROWS - lines; y < TOTAL_ROWS; y++) {
+      state.board[y].fill(2); state.board[y][4] = 0;
+    }
+    state.piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 1 };
+    state.gameOver = false;
+    state.nextQueue = [0, 1, 2, 3, 4];
+    state.bag = [5, 6];
+    state.lastLockResult = null;
+    state.lockElapsed = 0;
+    state.dropElapsed = 0;
+  }
+  function setupVsNoClearState(state) {
+    state.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    state.board[0][0] = 7;
+    state.piece = { rotation: 0, shape: [[1]], x: 4, y: TOTAL_ROWS - 1, color: 1 };
+    state.gameOver = false;
+    state.nextQueue = [0, 1, 2, 3, 4];
+    state.bag = [5, 6];
+    state.lastLockResult = null;
+    state.lockElapsed = 0;
+    state.dropElapsed = 0;
+  }
+  function startTransactionalVs() {
+    startGame(); startVsEngineTest();
+    assert.equal(vsMatchState.pendingLocks.human, null);
+    assert.equal(vsMatchState.pendingLocks.cpu, null);
+  }
+  function queueRows(queue) { return queue.reduce((sum, packet) => sum + packet.rows, 0); }
+
+  // 空のflushは何もせず、HumanだけのLockは1 side分だけcommitする。
+  startTransactionalVs();
+  assert.equal(flushVsSettlementWindow(), null);
+  setupVsLineState(currentPlayerState, 1);
+  prepareVsLock("human", currentPlayerState);
+  const humanOnlyBefore = JSON.stringify(currentPlayerState.piece);
+  assert.equal(vsMatchState.pendingLocks.cpu, null);
+  const humanOnlyTx = flushVsSettlementWindow();
+  assert.equal(humanOnlyTx.cpu.lockResult, null);
+  assert.equal(humanOnlyTx.human.rawAttack, 0);
+  assert.equal(currentPlayerState.piece.rotation, 0);
+  assert.notEqual(JSON.stringify(currentPlayerState.piece), humanOnlyBefore);
+
+  // CPUだけのLockも同じprepare/flush経路を通り、Humanへ次のpieceを影響させない。
+  startTransactionalVs();
+  setupVsNoClearState(currentPlayerState); setupVsNoClearState(secondaryPlayerState);
+  const humanBeforeCpuOnly = JSON.stringify(currentPlayerState.piece);
+  const cpuOnlyBefore = JSON.stringify(secondaryPlayerState.piece);
+  const cpuOnlyPending = prepareVsLock("cpu", secondaryPlayerState);
+  assert.equal(vsMatchState.pendingLocks.human, null);
+  const cpuOnlyTx = flushVsSettlementWindow();
+  assert.equal(cpuOnlyTx.human.lockResult, null);
+  assert.equal(cpuOnlyTx.cpu.lockResult, cpuOnlyPending.lockResult);
+  assert.equal(JSON.stringify(currentPlayerState.piece), humanBeforeCpuOnly);
+  assert.notEqual(JSON.stringify(secondaryPlayerState.piece), cpuOnlyBefore);
+
+  // 4 vs 4は相互に全相殺し、同じwindowの新規Garbageは発生しない。
+  startTransactionalVs();
+  setupVsLineState(currentPlayerState, 4); setupVsLineState(secondaryPlayerState, 4);
+  prepareVsLock("human", currentPlayerState); prepareVsLock("cpu", secondaryPlayerState);
+  const equalTx = flushVsSettlementWindow();
+  assert.equal(equalTx.mutualCancelled, 4);
+  assert.equal(equalTx.humanToCpu, 0); assert.equal(equalTx.cpuToHuman, 0);
+  assert.equal(queueRows(attackGarbageState.humanIncoming), 0);
+  assert.equal(queueRows(attackGarbageState.secondIncoming), 0);
+
+  // 4 vs 2は残ったHuman 2だけがCPUへ届く。
+  startTransactionalVs();
+  setupVsLineState(currentPlayerState, 4); setupVsLineState(secondaryPlayerState, 3);
+  prepareVsLock("human", currentPlayerState); prepareVsLock("cpu", secondaryPlayerState);
+  const asymTx = flushVsSettlementWindow();
+  assert.equal(asymTx.mutualCancelled, 2);
+  assert.equal(asymTx.humanToCpu, 2); assert.equal(asymTx.cpuToHuman, 0);
+  assert.equal(queueRows(attackGarbageState.humanIncoming), 0);
+  assert.equal(queueRows(attackGarbageState.secondIncoming), 2);
+  assert.equal(secondaryPlayerState.board.flat().filter(cell => cell === GARBAGE_CELL).length, 0);
+
+  // 自分の既存Incomingを先に相殺し、その後の相互相殺結果だけを相手へ送る。
+  startTransactionalVs();
+  setupVsLineState(currentPlayerState, 4); setupVsLineState(secondaryPlayerState, 3);
+  enqueueGarbagePacket(attackGarbageState.humanIncoming, 3, 2);
+  prepareVsLock("human", currentPlayerState); prepareVsLock("cpu", secondaryPlayerState);
+  const ownFirstTx = flushVsSettlementWindow();
+  assert.equal(ownFirstTx.human.ownCancelled, 3);
+  assert.equal(ownFirstTx.human.residualOutgoing, 1);
+  assert.equal(ownFirstTx.cpu.residualOutgoing, 2);
+  assert.equal(ownFirstTx.humanToCpu, 0); assert.equal(ownFirstTx.cpuToHuman, 1);
+  assert.equal(queueRows(attackGarbageState.humanIncoming), 1);
+  assert.equal(queueRows(attackGarbageState.secondIncoming), 0);
+
+  // 既存Incomingは今回riseし、新規Outgoingは次のLockまでqueueに残る。
+  startTransactionalVs();
+  setupVsLineState(currentPlayerState, 1); setupVsLineState(secondaryPlayerState, 4);
+  currentPlayerState.board[0][0] = 0;
+  enqueueGarbagePacket(attackGarbageState.humanIncoming, 3, 2);
+  prepareVsLock("human", currentPlayerState); prepareVsLock("cpu", secondaryPlayerState);
+  const deferredTx = flushVsSettlementWindow();
+  assert.equal(deferredTx.human.garbageApplied, 3);
+  assert.equal(queueRows(attackGarbageState.humanIncoming), 4);
+  assert.equal(currentPlayerState.board[TOTAL_ROWS - 1].filter(cell => cell === GARBAGE_CELL).length, COLS - 1);
+  assert.equal(queueRows(attackGarbageState.secondIncoming), 0);
+
+  // CPUへの新規4行は同じflushでriseせず、次のCPU Lockでだけ適用される。
+  startTransactionalVs();
+  setupVsLineState(currentPlayerState, 4); setupVsLineState(secondaryPlayerState, 1);
+  prepareVsLock("human", currentPlayerState); prepareVsLock("cpu", secondaryPlayerState);
+  flushVsSettlementWindow();
+  assert.equal(queueRows(attackGarbageState.secondIncoming), 4);
+  assert.equal(secondaryPlayerState.board.flat().filter(cell => cell === GARBAGE_CELL).length, 0);
+  secondaryPlayerState.board[0][0] = 0;
+  hardDropPlayer(secondaryPlayerState);
+  flushVsSettlementWindow();
+  assert.equal(queueRows(attackGarbageState.secondIncoming), 0);
+  assert.ok(secondaryPlayerState.board.flat().some(cell => cell === GARBAGE_CELL));
+
+  // Human-first / CPU-firstで同じ入力なら、board・queue・terminal・outcomeが一致する。
+  function runOrder(firstSide) {
+    startTransactionalVs();
+    setupVsLineState(currentPlayerState, 4); setupVsLineState(secondaryPlayerState, 2);
+    if (firstSide === "human") {
+      prepareVsLock("human", currentPlayerState); prepareVsLock("cpu", secondaryPlayerState);
+    } else {
+      prepareVsLock("cpu", secondaryPlayerState); prepareVsLock("human", currentPlayerState);
+    }
+    const tx = flushVsSettlementWindow();
+    return {
+      tx: { humanToCpu: tx.humanToCpu, cpuToHuman: tx.cpuToHuman, outcome: tx.outcome },
+      humanBoard: JSON.stringify(currentPlayerState.board), cpuBoard: JSON.stringify(secondaryPlayerState.board),
+      humanIncoming: JSON.stringify(attackGarbageState.humanIncoming), cpuIncoming: JSON.stringify(attackGarbageState.secondIncoming),
+      humanTerminal: currentPlayerState.gameOver, cpuTerminal: secondaryPlayerState.gameOver,
+    };
+  }
+  const originalRandom = Math.random;
+  Math.random = () => 0.5;
+  const humanFirst = runOrder("human");
+  const cpuFirst = runOrder("cpu");
+  Math.random = originalRandom;
+  assert.deepEqual(cpuFirst, humanFirst);
+
+  // Core terminal、Garbage terminal、混在る terminal はflush末尾で一度だけ判定する。
+  startTransactionalVs();
+  currentPlayerState.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(7));
+  secondaryPlayerState.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(7));
+  currentPlayerState.piece = { rotation: 0, shape: [[1]], x: 0, y: 0, color: 1 };
+  secondaryPlayerState.piece = { rotation: 0, shape: [[1]], x: 0, y: 0, color: 1 };
+  prepareVsLock("human", currentPlayerState); prepareVsLock("cpu", secondaryPlayerState);
+  assert.equal(vsMatchState.finished, false);
+  const coreDraw = flushVsSettlementWindow();
+  assert.equal(coreDraw.outcome, VS_OUTCOMES.DRAW); assert.equal(vsMatchState.outcome, VS_OUTCOMES.DRAW);
+  assert.equal(coreDraw.human.rawAttack, 0); assert.equal(coreDraw.cpu.rawAttack, 0);
+  assert.equal(coreDraw.human.lockResult.terminal, true); assert.equal(coreDraw.cpu.lockResult.terminal, true);
+  assert.equal(flushVsSettlementWindow(), null);
+
+  startTransactionalVs();
+  currentPlayerState.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(7));
+  currentPlayerState.piece = { rotation: 0, shape: [[1]], x: 0, y: 0, color: 1 };
+  setupVsLineState(secondaryPlayerState, 1);
+  const humanCoreOnly = prepareVsLock("human", currentPlayerState);
+  assert.equal(humanCoreOnly.coreTerminal, true);
+  assert.equal(flushVsSettlementWindow().outcome, VS_OUTCOMES.CPU_WIN);
+
+  startTransactionalVs();
+  setupVsLineState(currentPlayerState, 1);
+  secondaryPlayerState.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(7));
+  secondaryPlayerState.piece = { rotation: 0, shape: [[1]], x: 0, y: 0, color: 1 };
+  const cpuCoreOnly = prepareVsLock("cpu", secondaryPlayerState);
+  assert.equal(cpuCoreOnly.coreTerminal, true);
+  assert.equal(flushVsSettlementWindow().outcome, VS_OUTCOMES.HUMAN_WIN);
+
+  startTransactionalVs();
+  setupVsNoClearState(currentPlayerState); setupVsNoClearState(secondaryPlayerState);
+  enqueueGarbagePacket(attackGarbageState.humanIncoming, 1, 2);
+  enqueueGarbagePacket(attackGarbageState.secondIncoming, 1, 7);
+  const garbageDrawHuman = prepareVsLock("human", currentPlayerState);
+  const garbageDrawCpu = prepareVsLock("cpu", secondaryPlayerState);
+  assert.equal(garbageDrawHuman.coreTerminal, false); assert.equal(garbageDrawCpu.coreTerminal, false);
+  const garbageDrawTx = flushVsSettlementWindow();
+  assert.equal(garbageDrawTx.human.garbageApplied, 1);
+  assert.equal(garbageDrawTx.cpu.garbageApplied, 1);
+  assert.equal(garbageDrawTx.human.terminal, true);
+  assert.equal(garbageDrawTx.cpu.terminal, true);
+  assert.equal(garbageDrawTx.outcome, VS_OUTCOMES.DRAW);
+
+  startTransactionalVs();
+  currentPlayerState.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(7));
+  currentPlayerState.piece = { rotation: 0, shape: [[1]], x: 0, y: 0, color: 1 };
+  setupVsNoClearState(secondaryPlayerState);
+  enqueueGarbagePacket(attackGarbageState.secondIncoming, 1, 7);
+  prepareVsLock("human", currentPlayerState); prepareVsLock("cpu", secondaryPlayerState);
+  assert.equal(flushVsSettlementWindow().outcome, VS_OUTCOMES.DRAW);
+
+  startTransactionalVs();
+  setupVsLineState(currentPlayerState, 1); setupVsNoClearState(secondaryPlayerState);
+  enqueueGarbagePacket(attackGarbageState.secondIncoming, 1, 7);
+  prepareVsLock("cpu", secondaryPlayerState);
+  assert.equal(flushVsSettlementWindow().outcome, VS_OUTCOMES.HUMAN_WIN);
+
+  // Garbage overflowがなくてもSpawn位置が塞がれていればterminalになる。
+  startTransactionalVs();
+  setupVsLineState(currentPlayerState, 1); setupVsNoClearState(secondaryPlayerState);
+  prepareVsLock("human", currentPlayerState);
+  currentPlayerState.board[SPAWN_Y + 1].fill(7);
+  assert.equal(flushVsSettlementWindow().outcome, VS_OUTCOMES.CPU_WIN);
+
+  // pending中の重複Prepare/actionとCPUの旧actionは無視される。
+  startTransactionalVs();
+  setupVsLineState(currentPlayerState, 1); setupVsLineState(secondaryPlayerState, 1);
+  const humanPieceBeforePending = JSON.stringify(currentPlayerState.piece);
+  const firstHumanPending = prepareVsLock("human", currentPlayerState);
+  assert.equal(prepareVsLock("human", currentPlayerState), firstHumanPending);
+  applyPlayerAction(PLAYER_ACTIONS.MOVE_LEFT); hardDrop(); hold();
+  assert.equal(JSON.stringify(currentPlayerState.piece), humanPieceBeforePending);
+  prepareVsLock("cpu", secondaryPlayerState);
+  const cpuPieceBeforePending = JSON.stringify(secondaryPlayerState.piece);
+  advanceCpuController(cpuController, secondaryPlayerState, 1000);
+  assert.equal(JSON.stringify(secondaryPlayerState.piece), cpuPieceBeforePending);
+  assert.deepEqual(cpuController.actionQueue, []);
+
+  // Match終了・Rematchでpending transactionも完全に破棄される。
+  flushVsSettlementWindow();
+  assert.equal(vsMatchState.pendingLocks.human, null); assert.equal(vsMatchState.pendingLocks.cpu, null);
+  vsRematchButton.click();
+  assert.equal(vsMatchState.pendingLocks.human, null); assert.equal(vsMatchState.pendingLocks.cpu, null);
+  assert.equal(vsMatchState.settling, false);
+`);
+console.log("PASS: Phase 7B2 transactional prepare/flush, mutual cancellation, deferred garbage, order independence and pending guards.");

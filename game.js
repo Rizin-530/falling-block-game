@@ -185,6 +185,7 @@ const qaMessageElement = document.getElementById("qa-message");
 const qaForceHumanTopOutButton = document.getElementById("qa-force-human-top-out");
 const qaForceCpuTopOutButton = document.getElementById("qa-force-cpu-top-out");
 const qaForceDoubleTopOutButton = document.getElementById("qa-force-double-top-out");
+const qaTransactionalLockButton = document.getElementById("qa-transactional-lock");
 const dualBoardTestElement = document.getElementById("dual-board-test");
 const secondBoardCanvas = document.getElementById("second-board");
 const secondBoardContext = secondBoardCanvas.getContext("2d");
@@ -201,7 +202,7 @@ const qaScenarioButtons = [
   document.getElementById("qa-149"), document.getElementById("qa-clear"),
   document.getElementById("qa-force-i"), document.getElementById("qa-top-out"), document.getElementById("qa-dual"),
   document.getElementById("qa-cpu"), document.getElementById("qa-vs-engine"), document.getElementById("qa-garbage-human"),
-  qaForceHumanTopOutButton, qaForceCpuTopOutButton, qaForceDoubleTopOutButton,
+  qaForceHumanTopOutButton, qaForceCpuTopOutButton, qaForceDoubleTopOutButton, qaTransactionalLockButton,
 ];
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
@@ -258,7 +259,14 @@ function createAttackGarbageState() {
 }
 
 function createVsMatchState({ active = false } = {}) {
-  return { active, finished: false, outcome: null, resultSnapshot: null };
+  return {
+    active,
+    finished: false,
+    outcome: null,
+    resultSnapshot: null,
+    pendingLocks: { human: null, cpu: null },
+    settling: false,
+  };
 }
 
 let currentPlayerState = createPlayerState({ initialize: false });
@@ -304,7 +312,7 @@ function updateProgressUI() {
 
 function updateVsFixtureVisibility() {
   const visible = vsEngineTestActive && !vsMatchState.finished;
-  [qaForceHumanTopOutButton, qaForceCpuTopOutButton, qaForceDoubleTopOutButton].forEach(button => {
+  [qaForceHumanTopOutButton, qaForceCpuTopOutButton, qaForceDoubleTopOutButton, qaTransactionalLockButton].forEach(button => {
     if (button) button.hidden = !visible;
   });
 }
@@ -598,9 +606,9 @@ function startDebugLevel(selectedLevel) {
 }
 
 function advancePreviewSimulation(state, elapsed) {
-  if (!state || state.gameOver || elapsed <= 0 || isVsMatchFinished()) return;
+  if (!state || state.gameOver || elapsed <= 0 || isVsMatchFinished() || pendingVsLockFor(state)) return;
   let remaining = elapsed;
-  while (remaining > 0 && !state.gameOver) {
+  while (remaining > 0 && !state.gameOver && !pendingVsLockFor(state)) {
     if (isGroundedFor(state)) {
       const timeUntilLock = Math.max(0, LOCK_DELAY - state.lockElapsed);
       state.dropElapsed = 0;
@@ -608,9 +616,9 @@ function advancePreviewSimulation(state, elapsed) {
       if (state.lockElapsed < LOCK_DELAY) break;
       const versus = vsEngineTestActive && state === secondaryPlayerState && attackGarbageState;
       const result = versus
-        ? resolveVersusLockFor(state, attackGarbageState.secondIncoming, attackGarbageState.humanIncoming)
+        ? prepareVsLock("cpu", state)?.lockResult
         : resolveLockFor(state);
-      if (versus && result.terminal) settleVsMatchOutcome();
+      if (!result) break;
       if (result.terminal) break;
       if (!versus) advancePieceFor(state);
       remaining = Math.max(0, remaining - timeUntilLock);
@@ -671,6 +679,39 @@ function cancelIncomingGarbage(queue, attackRows) {
   };
 }
 
+function cloneGarbageQueue(queue) {
+  return queue.map(packet => ({ rows: packet.rows, holeColumn: packet.holeColumn }));
+}
+
+function pendingVsLockFor(state) {
+  if (!vsEngineTestActive || !state || !vsMatchState?.pendingLocks) return null;
+  const side = state === currentPlayerState ? "human" : state === secondaryPlayerState ? "cpu" : null;
+  return side ? vsMatchState.pendingLocks[side] : null;
+}
+
+function prepareVsLock(side, state) {
+  if (!vsEngineTestActive || !vsMatchState.active || vsMatchState.finished || !state || state.gameOver) return null;
+  if (side !== "human" && side !== "cpu") return null;
+  const pending = vsMatchState.pendingLocks[side];
+  if (pending) return pending;
+  const lockResult = resolveLockFor(state);
+  const record = { side, state, lockResult, coreTerminal: lockResult.terminal };
+  vsMatchState.pendingLocks[side] = record;
+  if (side === "cpu" && cpuController) resetCpuPlan(cpuController, "SETTLEMENT PENDING");
+  if (side === "human") {
+    clearHeldKeys();
+    scoreElement.textContent = score;
+    levelElement.textContent = level;
+    if (record.coreTerminal) {
+      statusElement.textContent = "VS TEST — TOP OUT";
+    }
+    updateProgressUI();
+    showSpinFeedback();
+    playLockEffects(lockResult.spin, lockResult.lines, lockResult.perfectClear, lockResult.levelChanged);
+  }
+  return record;
+}
+
 function createGarbageRow(holeColumn) {
   return Array.from({ length: COLS }, (_, x) => x === holeColumn ? 0 : GARBAGE_CELL);
 }
@@ -688,6 +729,101 @@ function applyGarbagePackets(state, queue) {
   }
   queue.length = 0;
   return { appliedRows, garbageOverflow };
+}
+
+function createVsSettlementSide(pending, incomingSnapshot) {
+  const coreTerminal = Boolean(pending?.coreTerminal);
+  const rawAttack = pending && !coreTerminal ? calculateAttack(pending.lockResult) : 0;
+  const cancellation = pending && !coreTerminal
+    ? cancelIncomingGarbage(incomingSnapshot, rawAttack)
+    : { queue: cloneGarbageQueue(incomingSnapshot), cancelled: 0, remainingAttack: 0 };
+  return {
+    pending,
+    state: pending?.state ?? null,
+    coreTerminal,
+    rawAttack,
+    cancelled: cancellation.cancelled,
+    remainingIncoming: cancellation.queue,
+    residualOutgoing: cancellation.remainingAttack,
+    garbageApplied: 0,
+    garbageOverflow: false,
+    terminal: coreTerminal,
+  };
+}
+
+function replaceGarbageQueue(queue, packets) {
+  queue.splice(0, queue.length, ...cloneGarbageQueue(packets));
+}
+
+function flushVsSettlementWindow() {
+  if (!vsEngineTestActive || !vsMatchState.active || vsMatchState.finished || vsMatchState.settling) return null;
+  const pendingLocks = vsMatchState.pendingLocks;
+  const humanPending = pendingLocks.human;
+  const cpuPending = pendingLocks.cpu;
+  if (!humanPending && !cpuPending) return null;
+  // Remove the records before committing so a re-entrant update cannot settle them twice.
+  vsMatchState.pendingLocks = { human: null, cpu: null };
+  vsMatchState.settling = true;
+  const preExisting = {
+    human: cloneGarbageQueue(attackGarbageState.humanIncoming),
+    cpu: cloneGarbageQueue(attackGarbageState.secondIncoming),
+  };
+  const human = createVsSettlementSide(humanPending, preExisting.human);
+  const cpu = createVsSettlementSide(cpuPending, preExisting.cpu);
+
+  let mutualCancelled = 0;
+  let humanToCpu = human.residualOutgoing;
+  let cpuToHuman = cpu.residualOutgoing;
+  if (humanPending && cpuPending) {
+    mutualCancelled = Math.min(humanToCpu, cpuToHuman);
+    humanToCpu -= mutualCancelled;
+    cpuToHuman -= mutualCancelled;
+  }
+
+  // Only locked sides consume the incoming snapshot. Newly generated attacks are added later.
+  replaceGarbageQueue(attackGarbageState.humanIncoming,
+    humanPending && !human.coreTerminal ? [] : preExisting.human);
+  replaceGarbageQueue(attackGarbageState.secondIncoming,
+    cpuPending && !cpu.coreTerminal ? [] : preExisting.cpu);
+  if (humanPending && !human.coreTerminal) {
+    const applied = applyGarbagePackets(human.state, human.remainingIncoming);
+    human.garbageApplied = applied.appliedRows;
+    human.garbageOverflow = applied.garbageOverflow;
+    human.terminal = applied.garbageOverflow;
+  }
+  if (cpuPending && !cpu.coreTerminal) {
+    const applied = applyGarbagePackets(cpu.state, cpu.remainingIncoming);
+    cpu.garbageApplied = applied.appliedRows;
+    cpu.garbageOverflow = applied.garbageOverflow;
+    cpu.terminal = applied.garbageOverflow;
+  }
+  if (humanPending && !human.terminal) {
+    advancePieceFor(human.state);
+    human.terminal = human.state.gameOver;
+  }
+  if (cpuPending && !cpu.terminal) {
+    advancePieceFor(cpu.state);
+    cpu.terminal = cpu.state.gameOver;
+  }
+
+  const humanTerminal = humanPending ? human.terminal : currentPlayerState.gameOver;
+  const cpuTerminal = cpuPending ? cpu.terminal : secondaryPlayerState.gameOver;
+  if (humanToCpu > 0 && !cpuTerminal) enqueueGarbagePacket(attackGarbageState.secondIncoming, humanToCpu);
+  if (cpuToHuman > 0 && !humanTerminal) enqueueGarbagePacket(attackGarbageState.humanIncoming, cpuToHuman);
+  const outcome = resolveVsOutcome(humanTerminal, cpuTerminal);
+  const transaction = {
+    human: { lockResult: humanPending?.lockResult ?? null, rawAttack: human.rawAttack, ownCancelled: human.cancelled, residualOutgoing: human.residualOutgoing, garbageApplied: human.garbageApplied, terminal: humanTerminal },
+    cpu: { lockResult: cpuPending?.lockResult ?? null, rawAttack: cpu.rawAttack, ownCancelled: cpu.cancelled, residualOutgoing: cpu.residualOutgoing, garbageApplied: cpu.garbageApplied, terminal: cpuTerminal },
+    mutualCancelled,
+    humanToCpu,
+    cpuToHuman,
+    outcome,
+  };
+  vsMatchState.settling = false;
+  if (outcome) finalizeVsMatch(outcome);
+  updateVersusIndicators();
+  draw();
+  return transaction;
 }
 
 function resolveVersusLockFor(state, incomingQueue, opponentQueue, { holeColumn } = {}) {
@@ -857,7 +993,7 @@ function resetCpuPlan(controller, status = "THINKING") {
 }
 
 function advanceCpuController(controller, state, elapsed) {
-  if (isVsMatchFinished() || !controller || !controller.enabled || !state || elapsed <= 0) return;
+  if (isVsMatchFinished() || pendingVsLockFor(state) || !controller || !controller.enabled || !state || elapsed <= 0) return;
   if (state.gameOver) {
     controller.enabled = false;
     controller.actionQueue = [];
@@ -1153,6 +1289,31 @@ function forceVsDoubleTopOut() {
   closeQa();
 }
 
+function setupVsTransactionalLock() {
+  if (!vsEngineTestActive || !secondaryPlayerState) return;
+  const setup = (state, lines) => {
+    state.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    state.board[0][0] = 7;
+    for (let y = TOTAL_ROWS - lines; y < TOTAL_ROWS; y++) {
+      state.board[y].fill(2); state.board[y][4] = 0;
+    }
+    state.piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 1 };
+    state.gameOver = false;
+    state.nextQueue = [0, 1, 2, 3, 4];
+    state.bag = [5, 6];
+    state.lastLockResult = null;
+    state.lockElapsed = 0;
+    state.dropElapsed = 0;
+  };
+  setup(currentPlayerState, 4);
+  setup(secondaryPlayerState, 1);
+  // Both real Hard Drop action boundaries prepare a lock; the next RAF flushes them together.
+  applyPlayerAction(PLAYER_ACTIONS.HARD_DROP);
+  applyPlayerActionFor(secondaryPlayerState, PLAYER_ACTIONS.HARD_DROP);
+  qaMessageElement.textContent = "Prepared Human/CPU locks; next frame settles both.";
+  closeQa();
+}
+
 function showSpinFeedback() {
   clearSpinFeedback();
   if (gameOver || (marathonComplete && !lastPerfectClear)) return;
@@ -1254,6 +1415,8 @@ function settleVsMatchOutcome() {
 
 function finalizeVsMatch(outcome) {
   if (!vsEngineTestActive || !vsMatchState.active || vsMatchState.finished || !outcome) return false;
+  vsMatchState.pendingLocks = { human: null, cpu: null };
+  vsMatchState.settling = false;
   vsMatchState.finished = true;
   vsMatchState.active = false;
   vsMatchState.outcome = outcome;
@@ -1375,7 +1538,7 @@ function holdPlayer(state) {
 }
 
 function hold() {
-  if (isVsMatchFinished()) return false;
+  if (isVsMatchFinished() || pendingVsLockFor(currentPlayerState)) return false;
   holdPlayer(currentPlayerState);
   if (currentPlayerState.gameOver) endGame();
 }
@@ -1458,7 +1621,7 @@ function movePlayer(state, dx, dy) {
 }
 
 function move(dx, dy) {
-  if (isVsMatchFinished()) return false;
+  if (isVsMatchFinished() || pendingVsLockFor(currentPlayerState)) return false;
   return movePlayer(currentPlayerState, dx, dy);
 }
 
@@ -1506,7 +1669,7 @@ function rotatePlayer(state, direction = 1) {
 }
 
 function rotate(direction = 1) {
-  if (isVsMatchFinished()) return false;
+  if (isVsMatchFinished() || pendingVsLockFor(currentPlayerState)) return false;
   return rotatePlayer(currentPlayerState, direction);
 }
 
@@ -1670,28 +1833,9 @@ function applyMarathonPolicy(state, result) {
 }
 
 function lockPiece() {
-  if (isVsMatchFinished()) return currentPlayerState.lastLockResult;
+  if (isVsMatchFinished() || pendingVsLockFor(currentPlayerState)) return currentPlayerState.lastLockResult;
   if (vsEngineTestActive && attackGarbageState) {
-    const outcome = resolveVersusLockFor(
-      currentPlayerState,
-      attackGarbageState.humanIncoming,
-      attackGarbageState.secondIncoming,
-    );
-    const result = outcome.lockResult;
-    scoreElement.textContent = score;
-    levelElement.textContent = level;
-    if (outcome.terminal) {
-      clearHeldKeys();
-      statusElement.textContent = "VS TEST — TOP OUT";
-      pauseButton.disabled = true;
-      settleVsMatchOutcome();
-    }
-    updateProgressUI();
-    showSpinFeedback();
-    playLockEffects(result.spin, result.lines, result.perfectClear, result.levelChanged);
-    updateVersusIndicators();
-    draw();
-    return result;
+    return prepareVsLock("human", currentPlayerState)?.lockResult ?? currentPlayerState.lastLockResult;
   }
   const result = resolveLockFor(currentPlayerState);
   if (result.lockOut) {
@@ -1711,7 +1855,7 @@ function lockPiece() {
 }
 
 function stepDown(softDrop = false) {
-  if (isVsMatchFinished()) return false;
+  if (isVsMatchFinished() || pendingVsLockFor(currentPlayerState)) return false;
   if (move(0, 1)) {
     if (softDrop) addScore(1);
     return true;
@@ -1720,7 +1864,7 @@ function stepDown(softDrop = false) {
 }
 
 function hardDrop() {
-  if (isVsMatchFinished()) return false;
+  if (isVsMatchFinished() || pendingVsLockFor(currentPlayerState)) return false;
   let distance = 0;
   while (move(0, 1)) distance++;
   addScore(distance * 2);
@@ -1728,14 +1872,15 @@ function hardDrop() {
 }
 
 function hardDropPlayer(state) {
-  if (isVsMatchFinished() || !state || state.gameOver || !state.piece) return false;
+  if (isVsMatchFinished() || pendingVsLockFor(state) || !state || state.gameOver || !state.piece) return false;
   let distance = 0;
   while (movePlayer(state, 0, 1)) distance++;
   state.score += distance * 2;
   const versus = vsEngineTestActive && state === secondaryPlayerState && attackGarbageState;
   const result = versus
-    ? resolveVersusLockFor(state, attackGarbageState.secondIncoming, attackGarbageState.humanIncoming)
+    ? prepareVsLock("cpu", state)?.lockResult
     : resolveLockFor(state);
+  if (!result) return false;
   if (!versus && !result.terminal) advancePieceFor(state);
   return { result, distance };
 }
@@ -1875,7 +2020,7 @@ const HUMAN_KEY_ACTIONS = Object.freeze({
 });
 
 function applyPlayerActionFor(state, action) {
-  if (isVsMatchFinished()) return false;
+  if (isVsMatchFinished() || pendingVsLockFor(state)) return false;
   switch (action) {
     case PLAYER_ACTIONS.MOVE_LEFT: return movePlayer(state, -1, 0);
     case PLAYER_ACTIONS.MOVE_RIGHT: return movePlayer(state, 1, 0);
@@ -1888,7 +2033,7 @@ function applyPlayerActionFor(state, action) {
 }
 
 function applyPlayerAction(action) {
-  if (isVsMatchFinished()) return false;
+  if (isVsMatchFinished() || pendingVsLockFor(currentPlayerState)) return false;
   switch (action) {
     case PLAYER_ACTIONS.MOVE_LEFT: return move(-1, 0);
     case PLAYER_ACTIONS.MOVE_RIGHT: return move(1, 0);
@@ -1905,7 +2050,7 @@ function handleHumanKeyDown(code, time, isRepeat = false) {
   if (isRepeat || humanController.heldKeys[code]) return;
   if (code === "KeyR") { restart(); return; }
   if (code === "KeyP") { togglePause(time); return; }
-  if (gameOver || marathonComplete || paused || isVsMatchFinished()) return;
+  if (gameOver || marathonComplete || paused || isVsMatchFinished() || pendingVsLockFor(currentPlayerState)) return;
 
   // 入力前の時間は入力前の姿勢に適用し、着地・リセット前の時間を混ぜない。
   advanceTime(time);
@@ -2002,6 +2147,7 @@ document.getElementById("qa-garbage-human").addEventListener("click", queueQaGar
 qaForceHumanTopOutButton.addEventListener("click", forceVsHumanTopOut);
 qaForceCpuTopOutButton.addEventListener("click", forceVsCpuTopOut);
 qaForceDoubleTopOutButton.addEventListener("click", forceVsDoubleTopOut);
+qaTransactionalLockButton.addEventListener("click", setupVsTransactionalLock);
 document.getElementById("qa-dual").addEventListener("click", startDualBoardTest);
 document.getElementById("qa-cpu").addEventListener("click", startCpuTest);
 document.getElementById("qa-vs-engine").addEventListener("click", startVsEngineTest);
@@ -2043,7 +2189,8 @@ window.addEventListener("focus", () => {
 
 function canAdvanceSimulation() {
   return !startScreenOpen && !paused && !settingsOpen && !qaOpen && !focusSuspended
-    && !document.hidden && !gameOver && !marathonComplete && !isVsMatchFinished();
+    && !document.hidden && !gameOver && !marathonComplete && !isVsMatchFinished()
+    && !pendingVsLockFor(currentPlayerState);
 }
 
 function canAdvanceSharedSimulation() {
@@ -2160,6 +2307,9 @@ function update(time) {
       if (cpuTestActive) advanceCpuController(cpuController, secondaryPlayerState, elapsed);
     }
     renderPlayer(secondaryPlayerState, secondView);
+  }
+  if (vsEngineTestActive && sharedSimulationActive && !paused && !settingsOpen && !qaOpen && !focusSuspended && !document.hidden) {
+    flushVsSettlementWindow();
   }
   dualFrameTime = time;
   requestAnimationFrame(update);
