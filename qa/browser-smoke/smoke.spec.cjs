@@ -211,3 +211,58 @@ test("DEV TOOLS VS ENGINE TEST routes attack and garbage without result screens"
   await expect(page.locator("#second-status")).not.toContainText(/WIN|LOSE|DRAW/);
   await assertNoRuntimeIssues(issues);
 });
+
+test("VS Results show winner stats, freeze the match, then support REMATCH and EXIT", async ({ page }) => {
+  const issues = captureRuntimeIssues(page);
+  await startGame(page);
+  await page.locator("#open-dev-tools").click();
+  await expect(page.locator("#qa-overlay")).toBeVisible();
+  await page.locator("#qa-vs-engine").click();
+  await expect(page.locator("#vs-results")).toBeHidden();
+  await expect(page.locator("#second-board")).toBeVisible();
+
+  // CPU-only terminal goes through the fixture's normal terminal and outcome paths.
+  await page.locator("#open-dev-tools").click();
+  await expect(page.locator("#qa-force-cpu-top-out")).toBeVisible();
+  await page.locator("#qa-force-cpu-top-out").click();
+  await expect(page.locator("#qa-overlay")).toBeHidden();
+  await expect(page.locator("#vs-results")).toBeVisible();
+  await expect(page.locator("#vs-results-title")).toHaveText("YOU WIN");
+  await expect(page.locator("#vs-human-score")).toHaveText(/^\d+$/);
+  await expect(page.locator("#vs-human-lines")).toHaveText(/^\d+$/);
+  await expect(page.locator("#vs-cpu-score")).toHaveText(/^\d+$/);
+  await expect(page.locator("#vs-cpu-lines")).toHaveText(/^\d+$/);
+  await expect(page.locator("#results")).toBeHidden();
+
+  const frozenHumanScore = await page.locator("#vs-human-score").textContent();
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press(" ");
+  await expect(page.locator("#vs-human-score")).toHaveText(frozenHumanScore);
+  await expect(page.locator("#vs-results")).toBeVisible();
+
+  // REMATCH uses the same VS ENGINE TEST mode and clears both sides' queues/state.
+  await page.locator("#vs-rematch").click();
+  await expect(page.locator("#vs-results")).toBeHidden();
+  await expect(page.locator("#board")).toBeVisible();
+  await expect(page.locator("#second-board")).toBeVisible();
+  await expect(page.locator("#human-incoming")).toHaveText("0");
+  await expect(page.locator("#second-incoming")).toHaveText("0");
+  await expect.poll(async () => Number(await page.locator("#second-score").textContent()), { timeout: 5000 }).toBeGreaterThan(0);
+
+  // EXIT returns to the normal Start Screen; a new Marathon can then start cleanly.
+  await page.locator("#open-dev-tools").click();
+  await expect(page.locator("#qa-overlay")).toBeVisible();
+  await page.locator("#qa-force-human-top-out").click();
+  await expect(page.locator("#vs-results-title")).toHaveText("CPU WINS");
+  await page.locator("#vs-exit").click();
+  await expect(page.locator("#vs-results")).toBeHidden();
+  await expect(page.locator("#start-overlay")).toBeVisible();
+  await expect(page.locator("#dual-board-test")).toBeHidden();
+  await page.locator("#start-game").click();
+  await expect(page.locator("#start-overlay")).toBeHidden();
+  await expect(page.locator("#board")).toBeVisible();
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press(" ");
+  await expect(page.locator("#results")).toBeHidden();
+  await assertNoRuntimeIssues(issues);
+});

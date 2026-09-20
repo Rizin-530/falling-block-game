@@ -7,6 +7,7 @@ const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
 const NEXT_COUNT = 5;
 const MARATHON_TARGET_LINES = 150;
 const GARBAGE_CELL = 8;
+const VS_OUTCOMES = Object.freeze({ HUMAN_WIN: "HUMAN_WIN", CPU_WIN: "CPU_WIN", DRAW: "DRAW" });
 const CPU_V0_1_CONFIG = Object.freeze({
   thinkDelayMs: 240,
   actionIntervalMs: 90,
@@ -149,6 +150,14 @@ const resultsTSpinsElement = document.getElementById("results-t-spins");
 const resultsTSpinMinisElement = document.getElementById("results-t-spin-minis");
 const resultsPerfectClearsElement = document.getElementById("results-perfect-clears");
 const resultsMaxComboElement = document.getElementById("results-max-combo");
+const vsResultsElement = document.getElementById("vs-results");
+const vsResultsTitleElement = document.getElementById("vs-results-title");
+const vsHumanScoreElement = document.getElementById("vs-human-score");
+const vsHumanLinesElement = document.getElementById("vs-human-lines");
+const vsCpuScoreElement = document.getElementById("vs-cpu-score");
+const vsCpuLinesElement = document.getElementById("vs-cpu-lines");
+const vsRematchButton = document.getElementById("vs-rematch");
+const vsExitButton = document.getElementById("vs-exit");
 const boardStageElement = document.querySelector(".board-stage");
 const pauseVisualElement = document.getElementById("pause-visual");
 const gameUiElement = document.querySelector("main");
@@ -173,6 +182,9 @@ const startDevToolsButton = document.getElementById("start-dev-tools");
 const qaCloseButton = document.getElementById("qa-close");
 const qaResetButton = document.getElementById("qa-reset");
 const qaMessageElement = document.getElementById("qa-message");
+const qaForceHumanTopOutButton = document.getElementById("qa-force-human-top-out");
+const qaForceCpuTopOutButton = document.getElementById("qa-force-cpu-top-out");
+const qaForceDoubleTopOutButton = document.getElementById("qa-force-double-top-out");
 const dualBoardTestElement = document.getElementById("dual-board-test");
 const secondBoardCanvas = document.getElementById("second-board");
 const secondBoardContext = secondBoardCanvas.getContext("2d");
@@ -189,6 +201,7 @@ const qaScenarioButtons = [
   document.getElementById("qa-149"), document.getElementById("qa-clear"),
   document.getElementById("qa-force-i"), document.getElementById("qa-top-out"), document.getElementById("qa-dual"),
   document.getElementById("qa-cpu"), document.getElementById("qa-vs-engine"), document.getElementById("qa-garbage-human"),
+  qaForceHumanTopOutButton, qaForceCpuTopOutButton, qaForceDoubleTopOutButton,
 ];
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
@@ -244,6 +257,10 @@ function createAttackGarbageState() {
   return { humanIncoming: [], secondIncoming: [] };
 }
 
+function createVsMatchState({ active = false } = {}) {
+  return { active, finished: false, outcome: null, resultSnapshot: null };
+}
+
 let currentPlayerState = createPlayerState({ initialize: false });
 let dualBoardTestActive = false;
 let cpuTestActive = false;
@@ -252,6 +269,7 @@ let secondaryPlayerState = null;
 let dualFrameTime = null;
 let cpuController = null;
 let attackGarbageState = createAttackGarbageState();
+let vsMatchState = createVsMatchState();
 const PLAYER_STATE_FIELDS = [
   "board", "piece", "score", "gameOver", "nextQueue", "heldType", "holdUsed",
   "totalLines", "level", "dropElapsed", "lockElapsed", "lockResets", "bag",
@@ -282,6 +300,13 @@ function updateProgressUI() {
   b2bElement.textContent = backToBackActive ? "B2B ON" : "B2B OFF";
   comboElement.textContent = !gameOver && comboCount > 0 ? `COMBO ${comboCount}` : "";
   qaRunElement.hidden = !isQaRun;
+}
+
+function updateVsFixtureVisibility() {
+  const visible = vsEngineTestActive && !vsMatchState.finished;
+  [qaForceHumanTopOutButton, qaForceCpuTopOutButton, qaForceDoubleTopOutButton].forEach(button => {
+    if (button) button.hidden = !visible;
+  });
 }
 
 function updatePauseVisual() {
@@ -394,7 +419,7 @@ function updateSettingsUI() {
 }
 
 function openSettings(time = performance.now()) {
-  if (settingsOpen || qaOpen) return;
+  if (settingsOpen || qaOpen || isVsMatchFinished()) return;
   settingsWasPaused = paused;
   if (!startScreenOpen && !gameOver && !marathonComplete && !paused) {
     advanceTime(time);
@@ -524,7 +549,7 @@ function keepQaFocus(event) {
 }
 
 function openQa(time = performance.now()) {
-  if (qaOpen || settingsOpen) return;
+  if (qaOpen || settingsOpen || isVsMatchFinished()) return;
   qaWasPaused = paused;
   if (!startScreenOpen && !gameOver && !marathonComplete && !paused) {
     advanceTime(time);
@@ -549,20 +574,20 @@ function openQa(time = performance.now()) {
 function closeQa() {
   if (!qaOpen) return;
   qaOverlay.hidden = true;
-  gameUiElement.inert = startScreenOpen;
+  gameUiElement.inert = startScreenOpen || isVsMatchFinished();
   startOverlay.inert = false;
   qaOpen = false;
   clearHeldKeys();
   lastTime = null;
   dualFrameTime = null;
-  if (!startScreenOpen && !gameOver && !marathonComplete) {
+  if (!startScreenOpen && !gameOver && !marathonComplete && !isVsMatchFinished()) {
     paused = qaWasPaused;
     statusElement.textContent = paused ? "一時停止中" : "プレイ中";
     pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
   }
   qaWasPaused = false;
   updatePauseVisual();
-  (startScreenOpen ? startDevToolsButton : devToolsButton).focus?.();
+  (isVsMatchFinished() ? vsResultsTitleElement : startScreenOpen ? startDevToolsButton : devToolsButton).focus?.();
 }
 
 function startDebugLevel(selectedLevel) {
@@ -573,7 +598,7 @@ function startDebugLevel(selectedLevel) {
 }
 
 function advancePreviewSimulation(state, elapsed) {
-  if (!state || state.gameOver || elapsed <= 0) return;
+  if (!state || state.gameOver || elapsed <= 0 || isVsMatchFinished()) return;
   let remaining = elapsed;
   while (remaining > 0 && !state.gameOver) {
     if (isGroundedFor(state)) {
@@ -585,6 +610,7 @@ function advancePreviewSimulation(state, elapsed) {
       const result = versus
         ? resolveVersusLockFor(state, attackGarbageState.secondIncoming, attackGarbageState.humanIncoming)
         : resolveLockFor(state);
+      if (versus && result.terminal) settleVsMatchOutcome();
       if (result.terminal) break;
       if (!versus) advancePieceFor(state);
       remaining = Math.max(0, remaining - timeUntilLock);
@@ -831,7 +857,7 @@ function resetCpuPlan(controller, status = "THINKING") {
 }
 
 function advanceCpuController(controller, state, elapsed) {
-  if (!controller || !controller.enabled || !state || elapsed <= 0) return;
+  if (isVsMatchFinished() || !controller || !controller.enabled || !state || elapsed <= 0) return;
   if (state.gameOver) {
     controller.enabled = false;
     controller.actionQueue = [];
@@ -884,6 +910,7 @@ function startDualBoardTest() {
   dualBoardTestActive = true;
   cpuTestActive = false;
   vsEngineTestActive = false;
+  vsMatchState = createVsMatchState();
   attackGarbageState = createAttackGarbageState();
   restart();
   secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
@@ -902,6 +929,8 @@ function startDualBoardTest() {
   pauseButton.textContent = "一時停止（P）";
   dualBoardTestElement.hidden = false;
   secondView.statusText = "";
+  hideVsResults();
+  updateVsFixtureVisibility();
   updatePauseVisual();
   draw();
 }
@@ -912,6 +941,7 @@ function startCpuTest() {
   dualBoardTestActive = true;
   cpuTestActive = true;
   vsEngineTestActive = false;
+  vsMatchState = createVsMatchState();
   attackGarbageState = createAttackGarbageState();
   restart();
   secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
@@ -929,22 +959,23 @@ function startCpuTest() {
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   secondView.statusText = "CPU v0.1";
+  hideVsResults();
+  updateVsFixtureVisibility();
   dualBoardTestElement.hidden = false;
   updatePauseVisual();
   draw();
 }
 
-function startVsEngineTest() {
+function startFreshVsMatch() {
   selectedStartLevel = 1;
   isQaRun = true;
   dualBoardTestActive = true;
   cpuTestActive = true;
   vsEngineTestActive = true;
+  vsMatchState = createVsMatchState({ active: true });
   attackGarbageState = createAttackGarbageState();
   humanController = createHumanControllerState();
-  restart();
-  secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
-  cpuController = createCpuControllerState({ enabled: true });
+  restart({ preserveVsMatch: true });
   dualFrameTime = null;
   qaOpen = false;
   qaWasPaused = false;
@@ -960,11 +991,42 @@ function startVsEngineTest() {
   secondView.statusText = "CPU v0.1 — VS";
   vsIndicatorsElement.hidden = false;
   dualBoardTestElement.hidden = false;
+  hideVsResults();
+  updateVsFixtureVisibility();
   updatePauseVisual();
   draw();
 }
 
+function startVsEngineTest() {
+  startFreshVsMatch();
+}
+
+function exitVsMatch() {
+  hideVsResults();
+  vsMatchState = createVsMatchState();
+  vsEngineTestActive = false;
+  dualBoardTestActive = false;
+  cpuTestActive = false;
+  secondaryPlayerState = null;
+  cpuController = createCpuControllerState();
+  attackGarbageState = createAttackGarbageState();
+  dualFrameTime = null;
+  dualBoardTestElement.hidden = true;
+  vsIndicatorsElement.hidden = true;
+  isQaRun = false;
+  selectedStartLevel = 1;
+  humanController = createHumanControllerState();
+  secondView.statusText = "";
+  showStartScreen();
+  updateVsFixtureVisibility();
+  draw();
+}
+
 function exitDualBoardTest() {
+  if (vsEngineTestActive) {
+    exitVsMatch();
+    return;
+  }
   dualBoardTestActive = false;
   cpuTestActive = false;
   vsEngineTestActive = false;
@@ -977,6 +1039,7 @@ function exitDualBoardTest() {
   selectedStartLevel = 1;
   humanController = createHumanControllerState();
   secondView.statusText = "";
+  updateVsFixtureVisibility();
   restart();
 }
 
@@ -1059,6 +1122,37 @@ function queueQaGarbageToHuman() {
   updateVersusIndicators();
 }
 
+function forceVsTopOut(state) {
+  if (!vsEngineTestActive || !state) return;
+  state.board[SPAWN_Y + 1].fill(7);
+  spawnPieceFor(state, 0);
+  settleVsMatchOutcome();
+  draw();
+}
+
+function forceVsHumanTopOut() {
+  if (!vsEngineTestActive) return;
+  forceVsTopOut(currentPlayerState);
+  closeQa();
+}
+
+function forceVsCpuTopOut() {
+  if (!vsEngineTestActive) return;
+  forceVsTopOut(secondaryPlayerState);
+  closeQa();
+}
+
+function forceVsDoubleTopOut() {
+  if (!vsEngineTestActive || !secondaryPlayerState) return;
+  currentPlayerState.board[SPAWN_Y + 1].fill(7);
+  secondaryPlayerState.board[SPAWN_Y + 1].fill(7);
+  spawnPieceFor(currentPlayerState, 0);
+  spawnPieceFor(secondaryPlayerState, 0);
+  settleVsMatchOutcome();
+  draw();
+  closeQa();
+}
+
 function showSpinFeedback() {
   clearSpinFeedback();
   if (gameOver || (marathonComplete && !lastPerfectClear)) return;
@@ -1105,6 +1199,80 @@ function hideResults() {
   resultsElement.hidden = true;
 }
 
+function resolveVsOutcome(humanTerminal, cpuTerminal) {
+  if (humanTerminal && cpuTerminal) return VS_OUTCOMES.DRAW;
+  if (humanTerminal) return VS_OUTCOMES.CPU_WIN;
+  if (cpuTerminal) return VS_OUTCOMES.HUMAN_WIN;
+  return null;
+}
+
+function createVsResultSnapshot(outcome) {
+  const snapshotPlayer = state => ({
+    score: state?.score ?? 0,
+    lines: state?.totalLines ?? 0,
+    level: state?.level ?? 1,
+    stats: { ...(state?.runStats ?? createEmptyRunStats()) },
+  });
+  return {
+    outcome,
+    human: snapshotPlayer(currentPlayerState),
+    cpu: snapshotPlayer(secondaryPlayerState),
+  };
+}
+
+function hideVsResults() {
+  if (vsResultsElement) vsResultsElement.hidden = true;
+}
+
+function showVsResults(snapshot) {
+  const titles = {
+    [VS_OUTCOMES.HUMAN_WIN]: "YOU WIN",
+    [VS_OUTCOMES.CPU_WIN]: "CPU WINS",
+    [VS_OUTCOMES.DRAW]: "DRAW",
+  };
+  vsResultsTitleElement.textContent = titles[snapshot.outcome] ?? "VS RESULTS";
+  vsHumanScoreElement.textContent = String(snapshot.human.score);
+  vsHumanLinesElement.textContent = String(snapshot.human.lines);
+  vsCpuScoreElement.textContent = String(snapshot.cpu.score);
+  vsCpuLinesElement.textContent = String(snapshot.cpu.lines);
+  vsResultsElement.hidden = false;
+  replayAnimation(vsResultsElement, "results-enter");
+  gameUiElement.inert = true;
+  vsResultsTitleElement.focus?.();
+}
+
+function isVsMatchFinished() {
+  return vsEngineTestActive && vsMatchState.finished;
+}
+
+function settleVsMatchOutcome() {
+  if (!vsEngineTestActive || !vsMatchState.active || vsMatchState.finished || !secondaryPlayerState) return null;
+  const outcome = resolveVsOutcome(currentPlayerState.gameOver, secondaryPlayerState.gameOver);
+  if (outcome) finalizeVsMatch(outcome);
+  return outcome;
+}
+
+function finalizeVsMatch(outcome) {
+  if (!vsEngineTestActive || !vsMatchState.active || vsMatchState.finished || !outcome) return false;
+  vsMatchState.finished = true;
+  vsMatchState.active = false;
+  vsMatchState.outcome = outcome;
+  vsMatchState.resultSnapshot = createVsResultSnapshot(outcome);
+  clearHeldKeys();
+  paused = false;
+  dualFrameTime = null;
+  if (cpuController) {
+    cpuController.enabled = false;
+    resetCpuPlan(cpuController, "MATCH FINISHED");
+  }
+  pauseButton.disabled = true;
+  statusElement.textContent = "VS MATCH FINISHED";
+  updatePauseVisual();
+  showVsResults(vsMatchState.resultSnapshot);
+  draw();
+  return true;
+}
+
 // 7種類を1回ずつ使う順番をシャッフルする。
 function nextTypeFor(state) {
   if (state.bag.length === 0) {
@@ -1147,7 +1315,10 @@ function spawnPieceFor(state, type = state.nextQueue[0]) {
 
 function spawnPiece(type = nextQueue[0]) {
   const spawned = spawnPieceFor(currentPlayerState, type);
-  if (currentPlayerState.gameOver) endGame();
+  if (currentPlayerState.gameOver) {
+    if (vsEngineTestActive) settleVsMatchOutcome();
+    else endGame();
+  }
   return spawned;
 }
 
@@ -1204,6 +1375,7 @@ function holdPlayer(state) {
 }
 
 function hold() {
+  if (isVsMatchFinished()) return false;
   holdPlayer(currentPlayerState);
   if (currentPlayerState.gameOver) endGame();
 }
@@ -1218,7 +1390,7 @@ function softDropUsesRepeat(controller = humanController, state = currentPlayerS
 }
 
 function togglePause(time = performance.now()) {
-  if (gameOver || marathonComplete) return;
+  if (gameOver || marathonComplete || isVsMatchFinished()) return;
   advanceTime(time);
   if (gameOver || marathonComplete) return;
   paused = !paused;
@@ -1286,6 +1458,7 @@ function movePlayer(state, dx, dy) {
 }
 
 function move(dx, dy) {
+  if (isVsMatchFinished()) return false;
   return movePlayer(currentPlayerState, dx, dy);
 }
 
@@ -1333,6 +1506,7 @@ function rotatePlayer(state, direction = 1) {
 }
 
 function rotate(direction = 1) {
+  if (isVsMatchFinished()) return false;
   return rotatePlayer(currentPlayerState, direction);
 }
 
@@ -1496,6 +1670,7 @@ function applyMarathonPolicy(state, result) {
 }
 
 function lockPiece() {
+  if (isVsMatchFinished()) return currentPlayerState.lastLockResult;
   if (vsEngineTestActive && attackGarbageState) {
     const outcome = resolveVersusLockFor(
       currentPlayerState,
@@ -1509,6 +1684,7 @@ function lockPiece() {
       clearHeldKeys();
       statusElement.textContent = "VS TEST — TOP OUT";
       pauseButton.disabled = true;
+      settleVsMatchOutcome();
     }
     updateProgressUI();
     showSpinFeedback();
@@ -1535,12 +1711,16 @@ function lockPiece() {
 }
 
 function stepDown(softDrop = false) {
+  if (isVsMatchFinished()) return false;
   if (move(0, 1)) {
     if (softDrop) addScore(1);
+    return true;
   }
+  return false;
 }
 
 function hardDrop() {
+  if (isVsMatchFinished()) return false;
   let distance = 0;
   while (move(0, 1)) distance++;
   addScore(distance * 2);
@@ -1548,7 +1728,7 @@ function hardDrop() {
 }
 
 function hardDropPlayer(state) {
-  if (!state || state.gameOver || !state.piece) return false;
+  if (isVsMatchFinished() || !state || state.gameOver || !state.piece) return false;
   let distance = 0;
   while (movePlayer(state, 0, 1)) distance++;
   state.score += distance * 2;
@@ -1634,12 +1814,18 @@ function draw() {
   renderPlayer(currentPlayerState, marathonView, { completed: marathonComplete });
   if (dualBoardTestActive && secondaryPlayerState) renderPlayer(secondaryPlayerState, secondView);
   updateVersusIndicators();
+  updateVsFixtureVisibility();
 }
 
-function restart() {
+function restart({ preserveVsMatch = false } = {}) {
+  if (vsEngineTestActive && !preserveVsMatch) {
+    startFreshVsMatch();
+    return;
+  }
   clearSpinFeedback();
   clearEffects();
   hideResults();
+  hideVsResults();
   startScreenOpen = false;
   startOverlay.hidden = true;
   startOverlay.inert = settingsOpen;
@@ -1653,6 +1839,7 @@ function restart() {
   if (vsEngineTestActive) {
     attackGarbageState = createAttackGarbageState();
     humanController = createHumanControllerState();
+    vsMatchState = createVsMatchState({ active: true });
   }
   if (secondView) secondView.statusText = vsEngineTestActive ? "CPU v0.1 — VS" : cpuTestActive ? "CPU v0.1" : "";
   dualFrameTime = null;
@@ -1664,6 +1851,7 @@ function restart() {
   scoreElement.textContent = "0";
   statusElement.textContent = "プレイ中";
   updateProgressUI();
+  updateVsFixtureVisibility();
   draw();
 }
 
@@ -1687,6 +1875,7 @@ const HUMAN_KEY_ACTIONS = Object.freeze({
 });
 
 function applyPlayerActionFor(state, action) {
+  if (isVsMatchFinished()) return false;
   switch (action) {
     case PLAYER_ACTIONS.MOVE_LEFT: return movePlayer(state, -1, 0);
     case PLAYER_ACTIONS.MOVE_RIGHT: return movePlayer(state, 1, 0);
@@ -1699,6 +1888,7 @@ function applyPlayerActionFor(state, action) {
 }
 
 function applyPlayerAction(action) {
+  if (isVsMatchFinished()) return false;
   switch (action) {
     case PLAYER_ACTIONS.MOVE_LEFT: return move(-1, 0);
     case PLAYER_ACTIONS.MOVE_RIGHT: return move(1, 0);
@@ -1715,7 +1905,7 @@ function handleHumanKeyDown(code, time, isRepeat = false) {
   if (isRepeat || humanController.heldKeys[code]) return;
   if (code === "KeyR") { restart(); return; }
   if (code === "KeyP") { togglePause(time); return; }
-  if (gameOver || marathonComplete || paused) return;
+  if (gameOver || marathonComplete || paused || isVsMatchFinished()) return;
 
   // 入力前の時間は入力前の姿勢に適用し、着地・リセット前の時間を混ぜない。
   advanceTime(time);
@@ -1809,10 +1999,15 @@ document.getElementById("qa-clear").addEventListener("click", clearQaBoard);
 document.getElementById("qa-force-i").addEventListener("click", forceQaI);
 document.getElementById("qa-top-out").addEventListener("click", loadQaTopOut);
 document.getElementById("qa-garbage-human").addEventListener("click", queueQaGarbageToHuman);
+qaForceHumanTopOutButton.addEventListener("click", forceVsHumanTopOut);
+qaForceCpuTopOutButton.addEventListener("click", forceVsCpuTopOut);
+qaForceDoubleTopOutButton.addEventListener("click", forceVsDoubleTopOut);
 document.getElementById("qa-dual").addEventListener("click", startDualBoardTest);
 document.getElementById("qa-cpu").addEventListener("click", startCpuTest);
 document.getElementById("qa-vs-engine").addEventListener("click", startVsEngineTest);
 document.getElementById("dual-exit").addEventListener("click", exitDualBoardTest);
+vsRematchButton.addEventListener("click", () => { enableAudio(); startFreshVsMatch(); });
+vsExitButton.addEventListener("click", exitVsMatch);
 qaResetButton.addEventListener("click", () => {
   isQaRun = false;
   if (dualBoardTestActive) {
@@ -1848,11 +2043,12 @@ window.addEventListener("focus", () => {
 
 function canAdvanceSimulation() {
   return !startScreenOpen && !paused && !settingsOpen && !qaOpen && !focusSuspended
-    && !document.hidden && !gameOver && !marathonComplete;
+    && !document.hidden && !gameOver && !marathonComplete && !isVsMatchFinished();
 }
 
 function canAdvanceSharedSimulation() {
-  return !startScreenOpen && !paused && !settingsOpen && !qaOpen && !focusSuspended && !document.hidden;
+  return !startScreenOpen && !paused && !settingsOpen && !qaOpen && !focusSuspended && !document.hidden
+    && !isVsMatchFinished();
 }
 
 function prepareHumanController(controller, state, time) {
@@ -1883,6 +2079,7 @@ function advanceHumanController(controller, time) {
 }
 
 function advanceTime(time) {
+  if (isVsMatchFinished()) return;
   prepareHumanController(humanController, currentPlayerState, time);
   while (canAdvanceSimulation()) {
     const due = Math.min(humanController.nextHorizontalTime, humanController.nextSoftDropTime);
@@ -1957,8 +2154,8 @@ function update(time) {
   advanceTime(time);
   if (dualBoardTestActive && secondaryPlayerState && sharedSimulationActive && previousFrameTime !== null) {
     const elapsed = Math.max(0, time - previousFrameTime);
-    if ((!vsEngineTestActive && humanSimulationActive)
-      || (vsEngineTestActive && !secondaryPlayerState.gameOver)) {
+    if (!isVsMatchFinished() && ((!vsEngineTestActive && humanSimulationActive)
+      || (vsEngineTestActive && !secondaryPlayerState.gameOver))) {
       advancePreviewSimulation(secondaryPlayerState, elapsed);
       if (cpuTestActive) advanceCpuController(cpuController, secondaryPlayerState, elapsed);
     }

@@ -3670,3 +3670,83 @@ attackGarbageTests(`
   assert.equal(secondaryPlayerState, null);
 `);
 console.log("PASS: Phase 7A attack table, FIFO garbage cancellation/application, overflow, VS lock flow, isolation and restart reset.");
+
+const vsMatchTests = createGame({ "falling-block-high-score": "777" });
+vsMatchTests(`
+  // Outcome resolverは純粋にterminalの組み合わせだけを判定する。
+  assert.equal(resolveVsOutcome(false, false), null);
+  assert.equal(resolveVsOutcome(false, true), VS_OUTCOMES.HUMAN_WIN);
+  assert.equal(resolveVsOutcome(true, false), VS_OUTCOMES.CPU_WIN);
+  assert.equal(resolveVsOutcome(true, true), VS_OUTCOMES.DRAW);
+  const matchFactoryState = createVsMatchState({ active: true });
+  assert.deepEqual(matchFactoryState, { active: true, finished: false, outcome: null, resultSnapshot: null });
+
+  // CPU terminalのみでHumanが勝ち、VS ResultsはMarathon Resultsと分離される。
+  startGame(); openQa(0); startVsEngineTest();
+  score = 123; totalLines = 7; level = 1;
+  secondaryPlayerState.score = 456; secondaryPlayerState.totalLines = 9; secondaryPlayerState.level = 1;
+  runStats.tetrises = 2; secondaryPlayerState.runStats.tetrises = 3;
+  const highScoreBeforeVs = localStorage.getItem(HIGH_SCORE_KEY);
+  openQa(0); forceVsCpuTopOut();
+  assert.equal(vsMatchState.outcome, VS_OUTCOMES.HUMAN_WIN);
+  assert.equal(vsMatchState.finished, true); assert.equal(vsMatchState.active, false);
+  assert.equal(vsResultsElement.hidden, false); assert.equal(resultsElement.hidden, true);
+  assert.equal(vsResultsTitleElement.textContent, "YOU WIN");
+  assert.equal(vsHumanScoreElement.textContent, "123"); assert.equal(vsHumanLinesElement.textContent, "7");
+  assert.equal(vsCpuScoreElement.textContent, "456"); assert.equal(vsCpuLinesElement.textContent, "9");
+  assert.equal(localStorage.getItem(HIGH_SCORE_KEY), highScoreBeforeVs);
+  assert.equal(marathonComplete, false);
+
+  // Snapshotはlive PlayerStateから独立し、終了後の再解決でOutcomeを変更しない。
+  const snapshot = vsMatchState.resultSnapshot;
+  score = 9999; currentPlayerState.runStats.tetrises = 99;
+  secondaryPlayerState.score = 8888; secondaryPlayerState.runStats.tetrises = 88;
+  assert.equal(snapshot.human.score, 123); assert.equal(snapshot.human.stats.tetrises, 2);
+  assert.equal(snapshot.cpu.score, 456); assert.equal(snapshot.cpu.stats.tetrises, 3);
+  assert.equal(finalizeVsMatch(VS_OUTCOMES.DRAW), false);
+  assert.equal(vsMatchState.outcome, VS_OUTCOMES.HUMAN_WIN);
+  assert.equal(vsMatchState.resultSnapshot, snapshot);
+
+  // Results中はHuman/CPUの入力・Gravity・Controllerを停止する。
+  const frozenPiece = JSON.stringify(currentPlayerState.piece);
+  const frozenBoard = JSON.stringify(currentPlayerState.board);
+  const frozenScore = currentPlayerState.score;
+  const frozenPlayTime = currentPlayerState.runStats.activePlayMs;
+  key("ArrowLeft"); key("ArrowUp"); key("ArrowDown"); key("Space"); key("KeyC");
+  advanceTime(50000); advancePreviewSimulation(secondaryPlayerState, 50000);
+  assert.equal(JSON.stringify(currentPlayerState.piece), frozenPiece);
+  assert.equal(JSON.stringify(currentPlayerState.board), frozenBoard);
+  assert.equal(currentPlayerState.score, frozenScore);
+  assert.equal(currentPlayerState.runStats.activePlayMs, frozenPlayTime);
+  assert.equal(cpuController.enabled, false); assert.deepEqual(cpuController.actionQueue, []);
+
+  // REMATCHは同じDEV VS modeで全状態をfreshにし、CPUを再始動する。
+  vsRematchButton.click();
+  assert.equal(vsResultsElement.hidden, true);
+  assert.equal(vsMatchState.active, true); assert.equal(vsMatchState.finished, false); assert.equal(vsMatchState.outcome, null);
+  assert.equal(currentPlayerState.score, 0); assert.equal(currentPlayerState.totalLines, 0); assert.equal(currentPlayerState.gameOver, false);
+  assert.equal(secondaryPlayerState.score, 0); assert.equal(secondaryPlayerState.totalLines, 0); assert.equal(secondaryPlayerState.gameOver, false);
+  assert.equal(currentPlayerState.heldType, null); assert.equal(secondaryPlayerState.heldType, null);
+  assert.equal(totalIncomingGarbage(attackGarbageState.humanIncoming), 0);
+  assert.equal(totalIncomingGarbage(attackGarbageState.secondIncoming), 0);
+  assert.equal(cpuController.enabled, true); assert.equal(cpuController.plannedPiece, null);
+  advanceCpuController(cpuController, secondaryPlayerState, CPU_V0_1_CONFIG.thinkDelayMs);
+  assert.equal(cpuController.needsPlan, false);
+
+  // Human terminalのみはCPU勝利、双方同一fixtureはDrawになる。
+  openQa(0); forceVsHumanTopOut();
+  assert.equal(vsMatchState.outcome, VS_OUTCOMES.CPU_WIN);
+  vsRematchButton.click(); openQa(0); forceVsDoubleTopOut();
+  assert.equal(vsMatchState.outcome, VS_OUTCOMES.DRAW);
+  assert.equal(vsResultsTitleElement.textContent, "DRAW");
+
+  // EXITはStart Screenへ戻し、VS専用状態を破棄する。Normal Marathonを再開できる。
+  vsExitButton.click();
+  assert.equal(startScreenOpen, true); assert.equal(dualBoardTestActive, false); assert.equal(vsEngineTestActive, false);
+  assert.equal(vsMatchState.active, false); assert.equal(vsMatchState.finished, false);
+  assert.equal(secondaryPlayerState, null); assert.equal(cpuController.enabled, false);
+  assert.equal(vsResultsElement.hidden, true); assert.equal(vsIndicatorsElement.hidden, true);
+  startGame(); key("ArrowLeft"); hardDrop();
+  assert.equal(startScreenOpen, false); assert.equal(gameOver, false); assert.equal(resultsElement.hidden, true);
+`);
+console.log("PASS: Phase 7B outcome mapping, VS Results snapshot/freeze, Rematch, Exit cleanup and Normal Marathon isolation.");

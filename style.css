@@ -56,6 +56,18 @@ canvas { display: block; }
 .results-overlay.results-enter { animation: results-enter 180ms ease-out; }
 .results-overlay.results-complete .results-card { border-color: #627d72; box-shadow: 0 12px 32px #0009, 0 0 22px #72d68b1f; }
 .results-card { width: min(100%, 250px); max-height: 100%; overflow-y: auto; padding: 22px 20px; border: 1px solid #454850; border-radius: 8px; background: #121316f2; box-shadow: 0 12px 32px #0009; text-align: center; }
+.vs-results-overlay { position: fixed; z-index: 8; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: #08090be6; overflow-y: auto; }
+.vs-results-overlay[hidden] { display: none; }
+.vs-results-card { width: min(100%, 360px); padding: 24px 22px; border: 1px solid #454850; border-radius: 8px; background: #121316f2; box-shadow: 0 12px 32px #0009; text-align: center; }
+.vs-results-card > h2 { color: #ededee; font-size: 19px; line-height: 1.35; }
+.vs-results-players { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 20px; }
+.vs-results-players section { padding-top: 10px; border-top: 1px solid #292b30; }
+.vs-results-players h3 { color: #adb1ba; font-size: 10px; letter-spacing: 0.1em; }
+.vs-results-players dl { display: grid; gap: 6px; margin-top: 9px; }
+.vs-results-players dl > div { display: flex; justify-content: space-between; gap: 12px; }
+.vs-results-players dt { color: #969ba5; font-size: 9px; letter-spacing: 0.06em; }
+.vs-results-players dd { color: #ededee; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vs-results-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 22px; }
 .results-card > h2 { color: #ededee; font-size: 17px; line-height: 1.35; overflow-wrap: anywhere; }
 .results-debug { min-height: 15px; margin-bottom: 6px; color: #d5b3f2; font-size: 10px; font-weight: 600; letter-spacing: 0.12em; }
 .results-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
@@ -210,6 +222,7 @@ body.effects-off .board-stage::after, body.effects-off #clear-event.event-pop, b
 @media (max-height: 650px) {
   #next { width: 96px; height: 160px; }
   .results-card { padding: 16px 14px; }
+  .vs-results-card { padding: 18px 14px; }
   .results-stats { gap: 8px; margin-top: 14px; }
   #play-again { margin-top: 14px; }
   .settings-overlay { place-items: start center; padding: 10px; }

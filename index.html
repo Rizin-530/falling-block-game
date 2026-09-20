@@ -90,6 +90,23 @@
     </div>
     <p class="footer-note">薄いブロックは着地点の目印です。</p>
   </main>
+  <section id="vs-results" class="vs-results-overlay" role="dialog" aria-modal="true" aria-labelledby="vs-results-title" hidden>
+    <div class="vs-results-card">
+      <p class="results-debug">VS MATCH</p>
+      <h2 id="vs-results-title" tabindex="-1">YOU WIN</h2>
+      <div class="vs-results-players">
+        <section aria-labelledby="vs-human-label">
+          <h3 id="vs-human-label">HUMAN</h3>
+          <dl><div><dt>SCORE</dt><dd id="vs-human-score">0</dd></div><div><dt>LINES</dt><dd id="vs-human-lines">0</dd></div></dl>
+        </section>
+        <section aria-labelledby="vs-cpu-label">
+          <h3 id="vs-cpu-label">CPU</h3>
+          <dl><div><dt>SCORE</dt><dd id="vs-cpu-score">0</dd></div><div><dt>LINES</dt><dd id="vs-cpu-lines">0</dd></div></dl>
+        </section>
+      </div>
+      <div class="vs-results-actions"><button id="vs-rematch" type="button">REMATCH</button><button id="vs-exit" type="button">EXIT</button></div>
+    </div>
+  </section>
   <section id="start-overlay" class="start-overlay" role="dialog" aria-modal="true" aria-labelledby="start-title">
     <div class="start-panel">
       <p class="eyebrow">FALLING BLOCK GAME</p>
@@ -157,6 +174,9 @@
           <button id="qa-dual" type="button">DUAL BOARD TEST</button>
           <button id="qa-cpu" type="button">CPU TEST</button>
           <button id="qa-vs-engine" type="button">VS ENGINE TEST</button>
+          <button id="qa-force-human-top-out" type="button" hidden>FORCE HUMAN TOP OUT</button>
+          <button id="qa-force-cpu-top-out" type="button" hidden>FORCE CPU TOP OUT</button>
+          <button id="qa-force-double-top-out" type="button" hidden>FORCE DOUBLE TOP OUT</button>
         </div>
       </section>
       <p id="qa-message" class="qa-message" role="status"></p>
