@@ -398,6 +398,88 @@ playerStateTests(`
 `);
 console.log("PASS: Phase 2 PlayerState factory, independent instances, state-aware operations and legacy parity.");
 
+const lockResultTests = createGame();
+lockResultTests(`
+  function emptyState() {
+    const state = createPlayerState({ initialize: false });
+    state.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    state.piece = { shape: [[1]], rotation: 0, x: 4, y: TOTAL_ROWS - 1, color: 1 };
+    return state;
+  }
+  function clearState(lines, startLevel = 1, startLines = (startLevel - 1) * 10) {
+    const state = createPlayerState({ initialize: false });
+    state.level = startLevel; state.totalLines = startLines;
+    state.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    state.board[0][0] = 7;
+    for (let y = TOTAL_ROWS - lines; y < TOTAL_ROWS; y++) {
+      state.board[y].fill(7); state.board[y][4] = 0;
+    }
+    state.piece = { shape: [[1], [1], [1], [1]], rotation: 1, x: 4, y: TOTAL_ROWS - 4, color: 1 };
+    return state;
+  }
+
+  // Core lock resolution accepts a specific PlayerState and has no Marathon/UI side effects.
+  const stateA = emptyState(); const stateB = emptyState();
+  stateB.board[0][0] = 7; stateB.score = 42; stateB.totalLines = 8; stateB.level = 1;
+  stateB.backToBackActive = true; stateB.comboCount = 3; stateB.runStats.tetrises = 2;
+  const stateBSnapshot = JSON.stringify(stateB);
+  const scoreTextBefore = scoreElement.textContent;
+  const highScoreBefore = highScore;
+  const result = resolveLockFor(stateA);
+  assert.equal(result.lines, 0); assert.equal(result.spin, "NONE");
+  assert.equal(result.scoreDelta, 0); assert.equal(result.comboBefore, -1); assert.equal(result.comboAfter, -1);
+  assert.equal(result.totalLinesBefore, 0); assert.equal(result.totalLinesAfter, 0);
+  assert.equal(result.lockOut, false); assert.equal(result.terminal, false);
+  assert.equal(stateA.board[TOTAL_ROWS - 1][4], 1); assert.equal(stateA.score, 0);
+  assert.equal(JSON.stringify(stateB), stateBSnapshot);
+  assert.equal(scoreElement.textContent, scoreTextBefore); assert.equal(highScore, highScoreBefore);
+  assert.equal(localStorage.getItem(HIGH_SCORE_KEY), null);
+
+  // Single/Double/Triple/Tetris keep their existing score, B2B and level semantics.
+  for (const [lines, points, difficult] of [[1, 100, false], [2, 300, false], [3, 500, false], [4, 800, true]]) {
+    const state = clearState(lines);
+    const locked = resolveLockFor(state);
+    assert.equal(locked.lines, lines); assert.equal(locked.scoreDelta, points);
+    assert.equal(locked.difficult, difficult); assert.equal(state.score, points);
+    assert.equal(state.totalLines, lines); assert.equal(state.level, 1);
+  }
+  const boundary = clearState(1, 1, 9); const boundaryResult = resolveLockFor(boundary);
+  assert.equal(boundaryResult.levelBefore, 1); assert.equal(boundaryResult.levelAfter, 2);
+  assert.equal(boundaryResult.scoreDelta, 100); assert.equal(boundary.totalLines, 10);
+
+  // T-Spin and Mini classification is taken from the existing state-aware corner rule.
+  function spinState(frontCorners) {
+    const state = emptyState();
+    state.piece = { shape: ROTATIONS[2][0], rotation: 0, x: 4, y: HIDDEN_ROWS + 5, color: 3 };
+    state.lastRotationKick = 0;
+    for (const [index, [dx, dy]] of [[0,[-1,-1]], [1,[1,-1]], [2,[1,1]], [3,[-1,1]]]) {
+      if (frontCorners.includes(index)) state.board[state.piece.y + 1 + dy][state.piece.x + 1 + dx] = 7;
+    }
+    return state;
+  }
+  assert.equal(resolveLockFor(spinState([0, 1, 2])).spin, "T_SPIN");
+  assert.equal(resolveLockFor(spinState([1, 2, 3])).spin, "T_SPIN_MINI");
+
+  // Perfect Clear is reported in the result while its existing score/stat update is preserved.
+  const perfect = createPlayerState({ initialize: false });
+  perfect.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  perfect.board[TOTAL_ROWS - 1].fill(7); perfect.board[TOTAL_ROWS - 1].fill(0, 3, 7);
+  perfect.piece = { shape: [[1, 1, 1, 1]], rotation: 0, x: 3, y: TOTAL_ROWS - 1, color: 1 };
+  const perfectResult = resolveLockFor(perfect);
+  assert.equal(perfectResult.lines, 1); assert.equal(perfectResult.perfectClear, true);
+  assert.equal(perfectResult.scoreDelta, 900); assert.equal(perfect.runStats.perfectClears, 1);
+
+  // Marathon completion is decided after core scoring, and an overrun is retained.
+  const finalClear = clearState(1, 15, 149); const finalResult = resolveLockFor(finalClear);
+  const finalPolicy = applyMarathonPolicy(finalClear, finalResult);
+  assert.equal(finalResult.totalLinesAfter, 150); assert.equal(finalPolicy.marathonComplete, true);
+  assert.equal(finalPolicy.shouldSpawn, false); assert.equal(finalPolicy.highScoreEligible, true);
+  const overrun = clearState(2, 15, 149); const overrunResult = resolveLockFor(overrun);
+  assert.equal(overrunResult.totalLinesAfter, 151);
+  assert.equal(applyMarathonPolicy(overrun, overrunResult).marathonComplete, true);
+`);
+console.log("PASS: Phase 3 PlayerState lock results, scoring parity, spin/Perfect Clear metadata, Marathon policy boundary and side-effect isolation.");
+
 const review = createGame();
 review(`
   // ブラウザのショートカットで盤面を変更しない。

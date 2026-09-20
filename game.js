@@ -865,33 +865,40 @@ function rotate(direction = 1) {
 function addScore(points) {
   score += points;
   scoreElement.textContent = score;
-  if (selectedStartLevel === 1 && !isQaRun && score > highScore) {
-    highScore = score;
-    try {
-      // 他のタブの記録を、起動時に読んだ古い値で上書きしない。
-      const saved = Number(localStorage.getItem(HIGH_SCORE_KEY));
-      const savedScore = Number.isSafeInteger(saved) && saved >= 0 ? saved : 0;
-      highScore = Math.max(highScore, savedScore);
-      if (highScore > savedScore) localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
-    } catch {
-      // 保存できない場合も、このページ内では記録を維持する。
-    }
-    highScoreElement.textContent = highScore;
+  updateHighScoreForMarathon(currentPlayerState);
+}
+
+function updateHighScoreForMarathon(state) {
+  if (selectedStartLevel !== 1 || isQaRun || state.score <= highScore) return;
+  highScore = state.score;
+  try {
+    // 他のタブの記録を、起動時に読んだ古い値で上書きしない。
+    const saved = Number(localStorage.getItem(HIGH_SCORE_KEY));
+    const savedScore = Number.isSafeInteger(saved) && saved >= 0 ? saved : 0;
+    highScore = Math.max(highScore, savedScore);
+    if (highScore > savedScore) localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
+  } catch {
+    // 保存できない場合も、このページ内では記録を維持する。
   }
+  highScoreElement.textContent = highScore;
 }
 
 // TetrisWikiの3-corner / 前側2角方式。第5候補の回転はMiniからFullへ。
 // https://tetris.wiki/T-Spin （最新公式Guideline全文の保証ではない）
-function detectTSpin() {
-  if (piece.color !== 3 || lastRotationKick === null) return "NONE";
-  const center = (piece.shape.length - 1) / 2;
+function detectTSpinFor(state) {
+  if (state.piece.color !== 3 || state.lastRotationKick === null) return "NONE";
+  const center = (state.piece.shape.length - 1) / 2;
   // 左上・右上・右下・左下。collidesで内部盤面の境界も占有扱いにする。
   const corners = [[-1,-1], [1,-1], [1,1], [-1,1]].map(([dx, dy]) =>
-    collides([[1]], piece.x + center + dx, piece.y + center + dy));
+    collidesOn(state.board, [[1]], state.piece.x + center + dx, state.piece.y + center + dy));
   if (corners.filter(Boolean).length < 3) return "NONE";
   // 状態0:上、1:右、2:下、3:左がTの突き出す側。
-  const frontFilled = corners[piece.rotation] && corners[(piece.rotation + 1) % 4];
-  return frontFilled || lastRotationKick === 4 ? "T_SPIN" : "T_SPIN_MINI";
+  const frontFilled = corners[state.piece.rotation] && corners[(state.piece.rotation + 1) % 4];
+  return frontFilled || state.lastRotationKick === 4 ? "T_SPIN" : "T_SPIN_MINI";
+}
+
+function detectTSpin() {
+  return detectTSpinFor(currentPlayerState);
 }
 
 function calculateClearScore(spin, lines, level) {
@@ -909,8 +916,12 @@ function isDifficultClear(spin, lines) {
     || (spin === "T_SPIN_MINI" && lines >= 1 && lines <= 2);
 }
 
+function isBoardEmptyFor(state) {
+  return state.board.every(row => row.every(cell => cell === 0));
+}
+
 function isBoardEmpty() {
-  return board.every(row => row.every(cell => cell === 0));
+  return isBoardEmptyFor(currentPlayerState);
 }
 
 function calculatePerfectClearScore(lines, level, b2bTetris) {
@@ -918,55 +929,114 @@ function calculatePerfectClearScore(lines, level, b2bTetris) {
   return base * level;
 }
 
-function lockPiece() {
-  lastLockResult = { spin: detectTSpin(), lines: 0 };
-  lastPerfectClear = false;
+function resolveLockFor(state) {
+  // 現行テストとQA用の検出差し替えを維持しつつ、別Stateでは純粋なstate-aware判定を使う。
+  const spin = state === currentPlayerState ? detectTSpin() : detectTSpinFor(state);
+  const result = {
+    spin,
+    lines: 0,
+    difficult: false,
+    perfectClear: false,
+    scoreDelta: 0,
+    comboBefore: state.comboCount,
+    comboAfter: state.comboCount,
+    b2bBefore: state.backToBackActive,
+    b2bBonusApplied: false,
+    b2bAfter: state.backToBackActive,
+    levelBefore: state.level,
+    levelAfter: state.level,
+    totalLinesBefore: state.totalLines,
+    totalLinesAfter: state.totalLines,
+    levelChanged: false,
+    lockOut: false,
+    topOut: false,
+    terminal: false,
+    statsDelta: { tetrises: 0, tSpins: 0, tSpinMinis: 0, perfectClears: 0 },
+  };
+  // 既存のHUD/Results用メタデータ形状は維持し、詳細なLock Resultは戻り値で渡す。
+  state.lastLockResult = { spin, lines: 0 };
+  state.lastPerfectClear = false;
   // 消去前の固定位置で判定。一部が見えていればLock Outにしない。
-  const lockOut = piece.shape.every((row, dy) => row.every(cell => !cell || piece.y + dy < HIDDEN_ROWS));
-  piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
-    if (cell) board[piece.y + dy][piece.x + dx] = piece.color;
+  const lockOut = state.piece.shape.every((row, dy) => row.every(cell => !cell || state.piece.y + dy < HIDDEN_ROWS));
+  state.piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
+    if (cell) state.board[state.piece.y + dy][state.piece.x + dx] = state.piece.color;
   }));
   if (lockOut) {
-    endGame();
-    return;
+    state.gameOver = true;
+    result.lockOut = true;
+    result.topOut = true;
+    result.terminal = true;
+    return result;
   }
-  const remaining = board.filter(row => row.some(cell => cell === 0));
+  const remaining = state.board.filter(row => row.some(cell => cell === 0));
   const cleared = TOTAL_ROWS - remaining.length;
-  lastLockResult.lines = cleared;
+  result.lines = cleared;
+  state.lastLockResult.lines = cleared;
   while (remaining.length < TOTAL_ROWS) remaining.unshift(Array(COLS).fill(0));
-  board = remaining;
-  lastPerfectClear = cleared > 0 && isBoardEmpty();
+  state.board = remaining;
+  state.lastPerfectClear = cleared > 0 && isBoardEmptyFor(state);
+  result.perfectClear = state.lastPerfectClear;
   // 今回の消去によるLevel上昇より前の倍率を使う。
-  const previousLevel = level;
-  let clearScore = calculateClearScore(lastLockResult.spin, cleared, level);
-  const difficult = isDifficultClear(lastLockResult.spin, cleared);
-  const b2bBonusApplied = backToBackActive && difficult;
+  const previousLevel = state.level;
+  let clearScore = calculateClearScore(result.spin, cleared, state.level);
+  const difficult = isDifficultClear(result.spin, cleared);
+  const b2bBonusApplied = state.backToBackActive && difficult;
   if (b2bBonusApplied) clearScore = clearScore * 3 / 2;
-  const b2bTetrisPerfectClear = b2bBonusApplied && lastLockResult.spin === "NONE" && cleared === 4;
-  const perfectClearScore = lastPerfectClear
-    ? calculatePerfectClearScore(cleared, level, b2bTetrisPerfectClear)
+  const b2bTetrisPerfectClear = b2bBonusApplied && result.spin === "NONE" && cleared === 4;
+  const perfectClearScore = state.lastPerfectClear
+    ? calculatePerfectClearScore(cleared, state.level, b2bTetrisPerfectClear)
     : 0;
-  comboCount = cleared > 0 ? comboCount + 1 : -1;
-  if (cleared === 4) runStats.tetrises++;
-  if (lastLockResult.spin === "T_SPIN") runStats.tSpins++;
-  else if (lastLockResult.spin === "T_SPIN_MINI") runStats.tSpinMinis++;
-  if (lastPerfectClear) runStats.perfectClears++;
-  runStats.maxCombo = Math.max(runStats.maxCombo, comboCount);
-  const comboScore = comboCount > 0 ? 50 * comboCount * level : 0;
-  addScore(clearScore + perfectClearScore + comboScore);
+  state.comboCount = cleared > 0 ? state.comboCount + 1 : -1;
+  if (cleared === 4) { state.runStats.tetrises++; result.statsDelta.tetrises = 1; }
+  if (result.spin === "T_SPIN") { state.runStats.tSpins++; result.statsDelta.tSpins = 1; }
+  else if (result.spin === "T_SPIN_MINI") { state.runStats.tSpinMinis++; result.statsDelta.tSpinMinis = 1; }
+  if (state.lastPerfectClear) { state.runStats.perfectClears++; result.statsDelta.perfectClears = 1; }
+  state.runStats.maxCombo = Math.max(state.runStats.maxCombo, state.comboCount);
+  const comboScore = state.comboCount > 0 ? 50 * state.comboCount * state.level : 0;
+  const scoreDelta = clearScore + perfectClearScore + comboScore;
+  state.score += scoreDelta;
   // 最初の対象消去は開始だけ。0ラインは既存の連続状態を維持する。
-  if (cleared > 0) backToBackActive = difficult;
-  totalLines += cleared;
-  level = Math.floor(totalLines / 10) + 1;
-  const levelChanged = level !== previousLevel;
+  if (cleared > 0) state.backToBackActive = difficult;
+  state.totalLines += cleared;
+  state.level = Math.floor(state.totalLines / 10) + 1;
+  state.dropElapsed = 0;
+  state.holdUsed = false;
+  result.difficult = difficult;
+  result.scoreDelta = scoreDelta;
+  result.comboAfter = state.comboCount;
+  result.b2bBonusApplied = b2bBonusApplied;
+  result.b2bAfter = state.backToBackActive;
+  result.totalLinesAfter = state.totalLines;
+  result.levelAfter = state.level;
+  result.levelChanged = state.level !== previousLevel;
+  return result;
+}
+
+function applyMarathonPolicy(state, result) {
+  const marathonComplete = !result.terminal && result.totalLinesAfter >= MARATHON_TARGET_LINES;
+  return {
+    marathonComplete,
+    shouldSpawn: !result.terminal && !marathonComplete,
+    highScoreEligible: selectedStartLevel === 1 && !isQaRun,
+  };
+}
+
+function lockPiece() {
+  const result = resolveLockFor(currentPlayerState);
+  if (result.lockOut) {
+    endGame();
+    return result;
+  }
+  const policy = applyMarathonPolicy(currentPlayerState, result);
+  scoreElement.textContent = score;
   levelElement.textContent = level;
-  dropElapsed = 0;
-  holdUsed = false;
-  if (totalLines >= MARATHON_TARGET_LINES) completeMarathon();
-  else advancePiece();
+  updateHighScoreForMarathon(currentPlayerState);
+  if (policy.marathonComplete) completeMarathon();
+  else if (policy.shouldSpawn) advancePiece();
   updateProgressUI();
   showSpinFeedback();
-  playLockEffects(lastLockResult.spin, cleared, lastPerfectClear, levelChanged);
+  playLockEffects(result.spin, result.lines, result.perfectClear, result.levelChanged);
+  return result;
 }
 
 function stepDown(softDrop = false) {
