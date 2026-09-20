@@ -4167,3 +4167,63 @@ vsFairnessTests(`
   assert.equal(mirrorA.cpuBoard, mirrorB.humanBoard);
 `);
 console.log("PASS: Phase 8A canonical 7-bag fairness, independent cursors, RNG separation, mirror symmetry and deterministic settlement stress.");
+
+const publicVsTests = createGame({ "falling-block-high-score": "777" });
+publicVsTests(`
+  // 公開VSはStart Screenから直接起動し、QA表示・Marathon結果・High Score経路を共有しない。
+  assert.equal(publicVsActive, false);
+  startPublicVsCpu();
+  assert.equal(publicVsActive, true);
+  assert.equal(vsEngineTestActive, true);
+  assert.equal(dualBoardTestActive, true);
+  assert.equal(cpuTestActive, true);
+  assert.equal(isQaRun, false);
+  assert.equal(statusElement.textContent, "VS CPU");
+  assert.equal(secondView.statusText, "CPU");
+  assert.equal(secondPlayerTitleElement.textContent, "CPU");
+  assert.equal(devToolsButton.hidden, true);
+  assert.equal(qaRunElement.hidden, true);
+  assert.equal(qaForceHumanTopOutButton.hidden, true);
+  assert.equal(qaForceCpuTopOutButton.hidden, true);
+  assert.equal(qaForceDoubleTopOutButton.hidden, true);
+  assert.equal(qaTransactionalLockButton.hidden, true);
+  assert.equal(qaVsEngineButton.hidden, true);
+  openQa();
+  assert.equal(qaOpen, false);
+
+  // Public VSのRestartとRematchは同じ公開モードを保ち、Marathonスコアを更新しない。
+  score = 1000;
+  addScore(1);
+  assert.equal(highScore, 777);
+  assert.equal(localStorage.getItem(HIGH_SCORE_KEY), "777");
+  restart();
+  assert.equal(publicVsActive, true);
+  assert.equal(isQaRun, false);
+  assert.equal(currentPlayerState.score, 0);
+  assert.equal(secondaryPlayerState.score, 0);
+  secondaryPlayerState.gameOver = true;
+  settleVsMatchOutcome();
+  assert.equal(vsMatchState.outcome, VS_OUTCOMES.HUMAN_WIN);
+  assert.equal(vsResultsElement.hidden, false);
+  assert.equal(resultsElement.hidden, true);
+  assert.equal(marathonComplete, false);
+  vsRematchButton.click();
+  assert.equal(publicVsActive, true);
+  assert.equal(isQaRun, false);
+  assert.equal(vsMatchState.active, true);
+  assert.equal(vsResultsElement.hidden, true);
+  assert.equal(secondView.statusText, "CPU");
+
+  // EXITはVS専用状態を破棄し、次のSTARTは通常Marathonへ戻る。
+  vsExitButton.click();
+  assert.equal(publicVsActive, false);
+  assert.equal(startScreenOpen, true);
+  assert.equal(vsEngineTestActive, false);
+  assert.equal(secondaryPlayerState, null);
+  assert.equal(devToolsButton.hidden, false);
+  startGame();
+  assert.equal(publicVsActive, false);
+  assert.equal(isQaRun, false);
+  assert.equal(dualBoardTestActive, false);
+`);
+console.log("PASS: Phase 8B public VS CPU entry, QA isolation, Marathon/High Score separation, rematch and exit lifecycle.");

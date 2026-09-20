@@ -283,3 +283,38 @@ test("VS transactional fixture settles Human and CPU in one window and defers ne
   await expect(page.locator("#second-status")).not.toContainText(/WIN|LOSE|DRAW/);
   await assertNoRuntimeIssues(issues);
 });
+
+test("public VS CPU starts from Start Screen without QA or Marathon mode", async ({ page }) => {
+  const issues = captureRuntimeIssues(page);
+  await page.goto("/");
+  await expect(page.locator("#start-overlay")).toBeVisible();
+  await expect(page.locator("#start-vs")).toBeEnabled();
+  await page.locator("#start-vs").click();
+  await expect(page.locator("#start-overlay")).toBeHidden();
+  await expect(page.locator("#dual-board-test")).toBeVisible();
+  await expect(page.locator("#board")).toBeVisible();
+  await expect(page.locator("#second-board")).toBeVisible();
+  await expect(page.locator("#second-player-title")).toHaveText("CPU");
+  await expect(page.locator("#second-status")).toHaveText("CPU");
+  await expect(page.locator("#qa-run")).toBeHidden();
+  await expect(page.locator("#results")).toBeHidden();
+  await expect(page.locator("#vs-results")).toBeHidden();
+  await expect(page.locator("#status")).toHaveText("VS CPU");
+  await expect(page.locator("#open-dev-tools")).toBeHidden();
+
+  // DEV TOOLS and its VS fixtures are unavailable while the public match is active.
+  await expect(page.locator("#qa-overlay")).toBeHidden();
+
+  await page.locator("#board").click({ position: { x: 150, y: 300 } });
+  await page.keyboard.press(" ");
+  await expect.poll(async () => Number(await page.locator("#second-score").textContent()), { timeout: 5000 }).toBeGreaterThan(0);
+  await page.keyboard.press("p");
+  await expect(page.locator("#pause-visual")).toBeVisible();
+  await page.keyboard.press("p");
+  await expect(page.locator("#pause-visual")).toBeHidden();
+  await page.locator("#restart").click();
+  await expect(page.locator("#second-player-title")).toHaveText("CPU");
+  await expect(page.locator("#second-status")).toHaveText("CPU");
+  await expect(page.locator("#qa-run")).toBeHidden();
+  await assertNoRuntimeIssues(issues);
+});

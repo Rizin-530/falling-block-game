@@ -140,6 +140,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .start-high-score strong { color: #ededee; font-size: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .start-actions { display: grid; gap: 8px; margin-top: 24px; }
 #start-game { background: #30343c; font-weight: 600; letter-spacing: 0.08em; }
+#start-vs { background: #242b32; font-weight: 600; letter-spacing: 0.08em; }
 #start-settings { background: #121316; color: #b9bdc5; }
 .dev-tools-open { min-height: 32px; padding: 6px 10px; background: transparent; color: #858a94; font-size: 10px; letter-spacing: 0.08em; }
 .start-actions .dev-tools-open { margin-top: 4px; }

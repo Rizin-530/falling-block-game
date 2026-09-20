@@ -163,6 +163,7 @@ const pauseVisualElement = document.getElementById("pause-visual");
 const gameUiElement = document.querySelector("main");
 const startOverlay = document.getElementById("start-overlay");
 const startButton = document.getElementById("start-game");
+const startVsButton = document.getElementById("start-vs");
 const startSettingsButton = document.getElementById("start-settings");
 const startHighScoreElement = document.getElementById("start-high-score");
 const settingsOverlay = document.getElementById("settings-overlay");
@@ -186,6 +187,7 @@ const qaForceHumanTopOutButton = document.getElementById("qa-force-human-top-out
 const qaForceCpuTopOutButton = document.getElementById("qa-force-cpu-top-out");
 const qaForceDoubleTopOutButton = document.getElementById("qa-force-double-top-out");
 const qaTransactionalLockButton = document.getElementById("qa-transactional-lock");
+const qaVsEngineButton = document.getElementById("qa-vs-engine");
 const dualBoardTestElement = document.getElementById("dual-board-test");
 const secondBoardCanvas = document.getElementById("second-board");
 const secondBoardContext = secondBoardCanvas.getContext("2d");
@@ -195,6 +197,7 @@ const secondScoreElement = document.getElementById("second-score");
 const secondLinesElement = document.getElementById("second-lines");
 const secondLevelElement = document.getElementById("second-level");
 const secondStatusElement = document.getElementById("second-status");
+const secondPlayerTitleElement = document.getElementById("second-player-title");
 const vsIndicatorsElement = document.getElementById("vs-indicators");
 const humanIncomingElement = document.getElementById("human-incoming");
 const secondIncomingElement = document.getElementById("second-incoming");
@@ -325,6 +328,8 @@ let currentPlayerState = createPlayerState({ initialize: false });
 let dualBoardTestActive = false;
 let cpuTestActive = false;
 let vsEngineTestActive = false;
+// VSエンジンを公開モードから起動したか。QA用のVSエンジンとは表示と保存方針を分ける。
+let publicVsActive = false;
 let secondaryPlayerState = null;
 let dualFrameTime = null;
 let cpuController = null;
@@ -363,7 +368,8 @@ function updateProgressUI() {
 }
 
 function updateVsFixtureVisibility() {
-  const visible = vsEngineTestActive && !vsMatchState.finished;
+  const visible = vsEngineTestActive && !publicVsActive && !vsMatchState.finished;
+  if (qaVsEngineButton) qaVsEngineButton.hidden = publicVsActive;
   [qaForceHumanTopOutButton, qaForceCpuTopOutButton, qaForceDoubleTopOutButton, qaTransactionalLockButton].forEach(button => {
     if (button) button.hidden = !visible;
   });
@@ -523,14 +529,16 @@ function closeSettings() {
 function keepStartFocus(event) {
   if (event.code !== "Tab") return;
   const first = startButton;
-  const last = startDevToolsButton;
+  const focusable = [startButton, startVsButton, startSettingsButton, startDevToolsButton]
+    .filter(element => !element.disabled && !element.hidden);
+  const last = focusable[focusable.length - 1];
   if (event.shiftKey && document.activeElement === first) {
     event.preventDefault();
     last.focus();
   } else if (!event.shiftKey && document.activeElement === last) {
     event.preventDefault();
     first.focus();
-  } else if (![startButton, startSettingsButton, startDevToolsButton].includes(document.activeElement)) {
+  } else if (!focusable.includes(document.activeElement)) {
     event.preventDefault();
     (event.shiftKey ? last : first).focus();
   }
@@ -551,12 +559,14 @@ function showStartScreen() {
 
 function startGame() {
   selectedStartLevel = 1;
+  publicVsActive = false;
   isQaRun = false;
   restart();
 }
 
 function playAgain() {
   selectedStartLevel = 1;
+  publicVsActive = false;
   isQaRun = false;
   restart();
 }
@@ -609,7 +619,7 @@ function keepQaFocus(event) {
 }
 
 function openQa(time = performance.now()) {
-  if (qaOpen || settingsOpen || isVsMatchFinished()) return;
+  if (qaOpen || settingsOpen || isVsMatchFinished() || publicVsActive) return;
   qaWasPaused = paused;
   if (!startScreenOpen && !gameOver && !marathonComplete && !paused) {
     advanceTime(time);
@@ -652,6 +662,7 @@ function closeQa() {
 
 function startDebugLevel(selectedLevel) {
   selectedStartLevel = selectedLevel;
+  publicVsActive = false;
   isQaRun = false;
   restart();
   closeQa();
@@ -1107,6 +1118,7 @@ function advanceCpuController(controller, state, elapsed) {
 function startDualBoardTest() {
   selectedStartLevel = 1;
   isQaRun = true;
+  publicVsActive = false;
   dualBoardTestActive = true;
   cpuTestActive = false;
   vsEngineTestActive = false;
@@ -1125,6 +1137,7 @@ function startDualBoardTest() {
   gameUiElement.inert = false;
   paused = false;
   statusElement.textContent = "DUAL BOARD TEST";
+  devToolsButton.hidden = false;
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   dualBoardTestElement.hidden = false;
@@ -1138,6 +1151,7 @@ function startDualBoardTest() {
 function startCpuTest() {
   selectedStartLevel = 1;
   isQaRun = true;
+  publicVsActive = false;
   dualBoardTestActive = true;
   cpuTestActive = true;
   vsEngineTestActive = false;
@@ -1156,6 +1170,7 @@ function startCpuTest() {
   gameUiElement.inert = false;
   paused = false;
   statusElement.textContent = "CPU TEST";
+  devToolsButton.hidden = false;
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
   secondView.statusText = "CPU v0.1";
@@ -1166,9 +1181,10 @@ function startCpuTest() {
   draw();
 }
 
-function startFreshVsMatch({ seed } = {}) {
+function startFreshVsMatch({ seed, publicMode = false } = {}) {
   selectedStartLevel = 1;
-  isQaRun = true;
+  publicVsActive = Boolean(publicMode);
+  isQaRun = !publicVsActive;
   dualBoardTestActive = true;
   cpuTestActive = true;
   vsEngineTestActive = true;
@@ -1185,10 +1201,12 @@ function startFreshVsMatch({ seed } = {}) {
   startOverlay.inert = false;
   gameUiElement.inert = false;
   paused = false;
-  statusElement.textContent = "VS ENGINE TEST";
+  statusElement.textContent = publicVsActive ? "VS CPU" : "VS ENGINE TEST";
+  devToolsButton.hidden = publicVsActive;
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
-  secondView.statusText = "CPU v0.1 — VS";
+  secondView.statusText = publicVsActive ? "CPU" : "CPU v0.1 — VS";
+  if (secondPlayerTitleElement) secondPlayerTitleElement.textContent = "CPU";
   vsIndicatorsElement.hidden = false;
   dualBoardTestElement.hidden = false;
   hideVsResults();
@@ -1198,13 +1216,19 @@ function startFreshVsMatch({ seed } = {}) {
 }
 
 function startVsEngineTest(options = {}) {
-  startFreshVsMatch(options);
+  startFreshVsMatch({ ...options, publicMode: false });
+}
+
+function startPublicVsCpu() {
+  enableAudio();
+  startFreshVsMatch({ publicMode: true });
 }
 
 function exitVsMatch() {
   hideVsResults();
   vsMatchState = createVsMatchState();
   vsEngineTestActive = false;
+  publicVsActive = false;
   dualBoardTestActive = false;
   cpuTestActive = false;
   secondaryPlayerState = null;
@@ -1217,6 +1241,8 @@ function exitVsMatch() {
   selectedStartLevel = 1;
   humanController = createHumanControllerState();
   secondView.statusText = "";
+  if (secondPlayerTitleElement) secondPlayerTitleElement.textContent = "PLAYER 2";
+  devToolsButton.hidden = false;
   showStartScreen();
   updateVsFixtureVisibility();
   draw();
@@ -1230,6 +1256,7 @@ function exitDualBoardTest() {
   dualBoardTestActive = false;
   cpuTestActive = false;
   vsEngineTestActive = false;
+  publicVsActive = false;
   secondaryPlayerState = null;
   cpuController = createCpuControllerState();
   attackGarbageState = createAttackGarbageState();
@@ -1747,7 +1774,7 @@ function addScore(points) {
 }
 
 function updateHighScoreForMarathon(state) {
-  if (selectedStartLevel !== 1 || isQaRun || state.score <= highScore) return;
+  if (selectedStartLevel !== 1 || isQaRun || publicVsActive || state.score <= highScore) return;
   highScore = state.score;
   try {
     // 他のタブの記録を、起動時に読んだ古い値で上書きしない。
@@ -1895,7 +1922,7 @@ function applyMarathonPolicy(state, result) {
   return {
     marathonComplete,
     shouldSpawn: !result.terminal && !marathonComplete,
-    highScoreEligible: selectedStartLevel === 1 && !isQaRun,
+    highScoreEligible: selectedStartLevel === 1 && !isQaRun && !publicVsActive,
   };
 }
 
@@ -2031,7 +2058,7 @@ function draw() {
 
 function restart({ preserveVsMatch = false } = {}) {
   if (vsEngineTestActive && !preserveVsMatch) {
-    startFreshVsMatch();
+    startFreshVsMatch({ publicMode: publicVsActive });
     return;
   }
   clearSpinFeedback();
@@ -2061,7 +2088,10 @@ function restart({ preserveVsMatch = false } = {}) {
     humanController = createHumanControllerState();
     vsMatchState = createVsMatchState({ active: true, pieceSource: vsMatchState.pieceSource });
   }
-  if (secondView) secondView.statusText = vsEngineTestActive ? "CPU v0.1 — VS" : cpuTestActive ? "CPU v0.1" : "";
+  if (secondView) secondView.statusText = vsEngineTestActive
+    ? (publicVsActive ? "CPU" : "CPU v0.1 — VS") : cpuTestActive ? "CPU v0.1" : "";
+  if (secondPlayerTitleElement) secondPlayerTitleElement.textContent = dualBoardTestActive ? "CPU" : "PLAYER 2";
+  devToolsButton.hidden = publicVsActive;
   dualFrameTime = null;
   updatePauseVisual();
   levelElement.textContent = level;
@@ -2192,6 +2222,7 @@ document.addEventListener("keydown", event => {
 document.getElementById("restart").addEventListener("click", () => { enableAudio(); restart(); });
 document.getElementById("play-again").addEventListener("click", () => { enableAudio(); playAgain(); });
 startButton.addEventListener("click", () => { enableAudio(); startGame(); });
+startVsButton.addEventListener("click", startPublicVsCpu);
 startSettingsButton.addEventListener("click", event => openSettings(event.timeStamp));
 startDevToolsButton.addEventListener("click", event => openQa(event.timeStamp));
 settingsButton.addEventListener("click", event => openSettings(event.timeStamp));
@@ -2227,7 +2258,7 @@ document.getElementById("qa-dual").addEventListener("click", startDualBoardTest)
 document.getElementById("qa-cpu").addEventListener("click", startCpuTest);
 document.getElementById("qa-vs-engine").addEventListener("click", startVsEngineTest);
 document.getElementById("dual-exit").addEventListener("click", exitDualBoardTest);
-vsRematchButton.addEventListener("click", () => { enableAudio(); startFreshVsMatch(); });
+vsRematchButton.addEventListener("click", () => { enableAudio(); startFreshVsMatch({ publicMode: publicVsActive }); });
 vsExitButton.addEventListener("click", exitVsMatch);
 qaResetButton.addEventListener("click", () => {
   isQaRun = false;
