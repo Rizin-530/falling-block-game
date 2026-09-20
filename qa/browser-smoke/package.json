@@ -1,0 +1,11 @@
+{
+  "name": "falling-block-game-browser-smoke",
+  "private": true,
+  "scripts": {
+    "smoke": "playwright test",
+    "smoke:headed": "set SMOKE_HEADED=1&& playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0"
+  }
+}
