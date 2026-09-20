@@ -315,7 +315,8 @@ playerStateTests(`
   const normal = createPlayerState();
   assert.equal(normal.board.length, TOTAL_ROWS);
   assert.ok(normal.board.every(row => row.length === COLS && row.every(cell => cell === 0)));
-  assert.equal(normal.piece, null);
+  assert.ok(normal.piece);
+  assert.equal(normal.nextQueue.length, NEXT_COUNT);
   assert.equal(normal.score, 0);
   assert.equal(normal.totalLines, 0);
   assert.equal(normal.level, 1);
@@ -338,13 +339,17 @@ playerStateTests(`
   const stateB = createPlayerState();
   assert.notEqual(stateA.board, stateB.board);
   assert.notEqual(stateA.board[0], stateB.board[0]);
+  assert.notEqual(stateA.piece, stateB.piece);
   assert.notEqual(stateA.nextQueue, stateB.nextQueue);
   assert.notEqual(stateA.bag, stateB.bag);
   assert.notEqual(stateA.runStats, stateB.runStats);
-  stateA.board[0][0] = 7; stateA.nextQueue.push(3); stateA.bag.push(4);
+  const stateBQueueLength = stateB.nextQueue.length; const stateBBagLength = stateB.bag.length;
+  stateA.board[0][0] = 7; stateA.piece.x = 0; stateA.nextQueue.push(3); stateA.bag.push(4);
+  stateA.dropElapsed = 123;
   stateA.runStats.tetrises = 1; stateA.lastLockResult = { spin: "NONE", lines: 1 };
-  assert.equal(stateB.board[0][0], 0); assert.equal(stateB.nextQueue.length, 0);
-  assert.equal(stateB.bag.length, 0); assert.equal(stateB.runStats.tetrises, 0);
+  assert.equal(stateB.board[0][0], 0); assert.equal(stateB.nextQueue.length, stateBQueueLength);
+  assert.equal(stateB.bag.length, stateBBagLength); assert.equal(stateB.runStats.tetrises, 0);
+  assert.notEqual(stateB.piece.x, 0); assert.equal(stateB.dropElapsed, 0);
   assert.equal(stateB.lastLockResult, null);
 
   // State-aware spawn and queue progression do not touch another state.

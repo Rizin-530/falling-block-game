@@ -169,8 +169,8 @@ function createEmptyRunStats() {
   return { activePlayMs: 0, tetrises: 0, tSpins: 0, tSpinMinis: 0, perfectClears: 0, maxCombo: 0 };
 }
 
-function createPlayerState({ selectedStartLevel = 1 } = {}) {
-  return {
+function createPlayerState({ selectedStartLevel = 1, initialize = true } = {}) {
+  const state = {
     board: Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0)),
     piece: null,
     score: 0,
@@ -191,9 +191,14 @@ function createPlayerState({ selectedStartLevel = 1 } = {}) {
     comboCount: -1,
     runStats: createEmptyRunStats(),
   };
+  if (initialize) {
+    state.nextQueue = [nextTypeFor(state)];
+    advancePieceFor(state);
+  }
+  return state;
 }
 
-let currentPlayerState = createPlayerState();
+let currentPlayerState = createPlayerState({ initialize: false });
 const PLAYER_STATE_FIELDS = [
   "board", "piece", "score", "gameOver", "nextQueue", "heldType", "holdUsed",
   "totalLines", "level", "dropElapsed", "lockElapsed", "lockResets", "bag",
@@ -1034,11 +1039,9 @@ function restart() {
   levelElement.textContent = level;
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
-  nextQueue = [nextType()];
   lastTime = null;
   scoreElement.textContent = "0";
   statusElement.textContent = "プレイ中";
-  advancePiece();
   updateProgressUI();
   draw();
 }
