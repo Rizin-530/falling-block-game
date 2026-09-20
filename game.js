@@ -225,7 +225,58 @@ function createEmptyRunStats() {
   return { activePlayMs: 0, tetrises: 0, tSpins: 0, tSpinMinis: 0, perfectClears: 0, maxCombo: 0 };
 }
 
-function createPlayerState({ selectedStartLevel = 1, initialize = true } = {}) {
+function createSeededRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+function createVsPieceSource(seed) {
+  const runtimeSeed = Number.isSafeInteger(seed)
+    ? seed >>> 0 : Math.floor(Math.random() * 0x100000000) >>> 0;
+  const garbageSeed = (runtimeSeed ^ 0x9e3779b9) >>> 0;
+  return {
+    seed: runtimeSeed,
+    sequence: [],
+    bag: [],
+    humanCursor: 0,
+    cpuCursor: 0,
+    pieceRandom: createSeededRandom(runtimeSeed),
+    garbageRandom: {
+      human: createSeededRandom(garbageSeed),
+      cpu: createSeededRandom(garbageSeed),
+    },
+  };
+}
+
+function nextVsPieceType(source, side) {
+  if (!source || (side !== "human" && side !== "cpu")) return null;
+  const cursorKey = `${side}Cursor`;
+  while (source.sequence.length <= source[cursorKey]) {
+    if (source.bag.length === 0) {
+      source.bag = [0, 1, 2, 3, 4, 5, 6];
+      for (let i = source.bag.length - 1; i > 0; i--) {
+        const j = Math.floor(source.pieceRandom() * (i + 1));
+        [source.bag[i], source.bag[j]] = [source.bag[j], source.bag[i]];
+      }
+    }
+    source.sequence.push(source.bag.pop());
+  }
+  const type = source.sequence[source[cursorKey]];
+  source[cursorKey]++;
+  return type;
+}
+
+function vsPieceSideFor(state, sideOverride = null) {
+  if (sideOverride === "human" || sideOverride === "cpu") return sideOverride;
+  if (state === currentPlayerState) return "human";
+  if (state === secondaryPlayerState) return "cpu";
+  return null;
+}
+
+function createPlayerState({ selectedStartLevel = 1, initialize = true, sequenceSide = null } = {}) {
   const state = {
     board: Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0)),
     piece: null,
@@ -248,8 +299,8 @@ function createPlayerState({ selectedStartLevel = 1, initialize = true } = {}) {
     runStats: createEmptyRunStats(),
   };
   if (initialize) {
-    state.nextQueue = [nextTypeFor(state)];
-    advancePieceFor(state);
+    state.nextQueue = [nextTypeFor(state, sequenceSide)];
+    advancePieceFor(state, sequenceSide);
   }
   return state;
 }
@@ -258,12 +309,13 @@ function createAttackGarbageState() {
   return { humanIncoming: [], secondIncoming: [] };
 }
 
-function createVsMatchState({ active = false } = {}) {
+function createVsMatchState({ active = false, pieceSource = null } = {}) {
   return {
     active,
     finished: false,
     outcome: null,
     resultSnapshot: null,
+    pieceSource,
     pendingLocks: { human: null, cpu: null },
     settling: false,
   };
@@ -640,19 +692,20 @@ function calculateAttack(lockResult) {
   return [0, 0, 1, 2, 4][lines] ?? 0;
 }
 
-function createGarbagePacket(rows, holeColumn) {
+function createGarbagePacket(rows, holeColumn, randomSource = Math.random) {
   const normalizedRows = Number.isInteger(rows) ? rows : 0;
   if (normalizedRows <= 0) return null;
+  const random = typeof randomSource === "function" ? randomSource : Math.random;
   const generatedHole = holeColumn === undefined
-    ? Math.floor(Math.random() * COLS) : holeColumn;
+    ? Math.floor(random() * COLS) : holeColumn;
   const normalizedHole = Math.max(0, Math.min(COLS - 1, Math.floor(generatedHole)));
   return { rows: normalizedRows, holeColumn: normalizedHole };
 }
 
-function enqueueGarbagePacket(queue, rows, holeColumn) {
+function enqueueGarbagePacket(queue, rows, holeColumn, randomSource = Math.random) {
   const packet = typeof rows === "object" && rows !== null
-    ? createGarbagePacket(rows.rows, rows.holeColumn)
-    : createGarbagePacket(rows, holeColumn);
+    ? createGarbagePacket(rows.rows, rows.holeColumn, randomSource)
+    : createGarbagePacket(rows, holeColumn, randomSource);
   if (packet) queue.push(packet);
   return queue;
 }
@@ -755,6 +808,10 @@ function replaceGarbageQueue(queue, packets) {
   queue.splice(0, queue.length, ...cloneGarbageQueue(packets));
 }
 
+function vsGarbageRandomFor(recipient) {
+  return vsMatchState?.pieceSource?.garbageRandom?.[recipient] ?? Math.random;
+}
+
 function flushVsSettlementWindow() {
   if (!vsEngineTestActive || !vsMatchState.active || vsMatchState.finished || vsMatchState.settling) return null;
   const pendingLocks = vsMatchState.pendingLocks;
@@ -808,8 +865,12 @@ function flushVsSettlementWindow() {
 
   const humanTerminal = humanPending ? human.terminal : currentPlayerState.gameOver;
   const cpuTerminal = cpuPending ? cpu.terminal : secondaryPlayerState.gameOver;
-  if (humanToCpu > 0 && !cpuTerminal) enqueueGarbagePacket(attackGarbageState.secondIncoming, humanToCpu);
-  if (cpuToHuman > 0 && !humanTerminal) enqueueGarbagePacket(attackGarbageState.humanIncoming, cpuToHuman);
+  if (humanToCpu > 0 && !cpuTerminal) {
+    enqueueGarbagePacket(attackGarbageState.secondIncoming, humanToCpu, undefined, vsGarbageRandomFor("cpu"));
+  }
+  if (cpuToHuman > 0 && !humanTerminal) {
+    enqueueGarbagePacket(attackGarbageState.humanIncoming, cpuToHuman, undefined, vsGarbageRandomFor("human"));
+  }
   const outcome = resolveVsOutcome(humanTerminal, cpuTerminal);
   const transaction = {
     human: { lockResult: humanPending?.lockResult ?? null, rawAttack: human.rawAttack, ownCancelled: human.cancelled, residualOutgoing: human.residualOutgoing, garbageApplied: human.garbageApplied, terminal: humanTerminal },
@@ -844,7 +905,10 @@ function resolveVersusLockFor(state, incomingQueue, opponentQueue, { holeColumn 
   incomingQueue.splice(0, incomingQueue.length, ...cancellation.queue);
   outcome.cancelled = cancellation.cancelled;
   outcome.outgoingAttack = cancellation.remainingAttack;
-  if (outcome.outgoingAttack > 0) enqueueGarbagePacket(opponentQueue, outcome.outgoingAttack, holeColumn);
+  if (outcome.outgoingAttack > 0) {
+    const recipient = state === currentPlayerState ? "cpu" : "human";
+    enqueueGarbagePacket(opponentQueue, outcome.outgoingAttack, holeColumn, vsGarbageRandomFor(recipient));
+  }
 
   const applied = applyGarbagePackets(state, incomingQueue);
   outcome.garbageApplied = applied.appliedRows;
@@ -1102,13 +1166,13 @@ function startCpuTest() {
   draw();
 }
 
-function startFreshVsMatch() {
+function startFreshVsMatch({ seed } = {}) {
   selectedStartLevel = 1;
   isQaRun = true;
   dualBoardTestActive = true;
   cpuTestActive = true;
   vsEngineTestActive = true;
-  vsMatchState = createVsMatchState({ active: true });
+  vsMatchState = createVsMatchState({ active: true, pieceSource: createVsPieceSource(seed) });
   attackGarbageState = createAttackGarbageState();
   humanController = createHumanControllerState();
   restart({ preserveVsMatch: true });
@@ -1133,8 +1197,8 @@ function startFreshVsMatch() {
   draw();
 }
 
-function startVsEngineTest() {
-  startFreshVsMatch();
+function startVsEngineTest(options = {}) {
+  startFreshVsMatch(options);
 }
 
 function exitVsMatch() {
@@ -1437,7 +1501,10 @@ function finalizeVsMatch(outcome) {
 }
 
 // 7種類を1回ずつ使う順番をシャッフルする。
-function nextTypeFor(state) {
+function nextTypeFor(state, sideOverride = null) {
+  const source = vsMatchState?.pieceSource;
+  const side = vsPieceSideFor(state, sideOverride);
+  if (vsEngineTestActive && source && side) return nextVsPieceType(source, side);
   if (state.bag.length === 0) {
     state.bag = [0, 1, 2, 3, 4, 5, 6];
     for (let i = state.bag.length - 1; i > 0; i--) {
@@ -1510,9 +1577,9 @@ function completeMarathon() {
   showResults("MARATHON COMPLETE");
 }
 
-function advancePieceFor(state) {
+function advancePieceFor(state, sideOverride = null) {
   const type = state.nextQueue.shift();
-  while (state.nextQueue.length < NEXT_COUNT) state.nextQueue.push(nextTypeFor(state));
+  while (state.nextQueue.length < NEXT_COUNT) state.nextQueue.push(nextTypeFor(state, sideOverride));
   return spawnPieceFor(state, type);
 }
 
@@ -1975,16 +2042,24 @@ function restart({ preserveVsMatch = false } = {}) {
   startOverlay.hidden = true;
   startOverlay.inert = settingsOpen;
   gameUiElement.inert = settingsOpen || qaOpen;
-  currentPlayerState = createPlayerState({ selectedStartLevel });
+  currentPlayerState = createPlayerState({
+    selectedStartLevel,
+    sequenceSide: vsEngineTestActive ? "human" : null,
+  });
   clearHeldKeys();
   marathonComplete = false;
   paused = false;
-  if (dualBoardTestActive) secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
+  if (dualBoardTestActive) {
+    secondaryPlayerState = createPlayerState({
+      selectedStartLevel: 1,
+      sequenceSide: vsEngineTestActive ? "cpu" : null,
+    });
+  }
   cpuController = createCpuControllerState({ enabled: cpuTestActive });
   if (vsEngineTestActive) {
     attackGarbageState = createAttackGarbageState();
     humanController = createHumanControllerState();
-    vsMatchState = createVsMatchState({ active: true });
+    vsMatchState = createVsMatchState({ active: true, pieceSource: vsMatchState.pieceSource });
   }
   if (secondView) secondView.statusText = vsEngineTestActive ? "CPU v0.1 — VS" : cpuTestActive ? "CPU v0.1" : "";
   dualFrameTime = null;

@@ -3681,6 +3681,7 @@ vsMatchTests(`
   const matchFactoryState = createVsMatchState({ active: true });
   assert.deepEqual(matchFactoryState, {
     active: true, finished: false, outcome: null, resultSnapshot: null,
+    pieceSource: null,
     pendingLocks: { human: null, cpu: null }, settling: false,
   });
 
@@ -3984,3 +3985,185 @@ vsTransactionalTests(`
   assert.equal(vsMatchState.settling, false);
 `);
 console.log("PASS: Phase 7B2 transactional prepare/flush, mutual cancellation, deferred garbage, order independence and pending guards.");
+
+const vsFairnessTests = createGame();
+vsFairnessTests(`
+  function setupVsScenarioState(state, lines) {
+    state.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    if (lines === 0) {
+      state.piece = { rotation: 0, shape: [[1]], x: 4, y: TOTAL_ROWS - 1, color: 1 };
+    } else {
+      for (let y = TOTAL_ROWS - lines; y < TOTAL_ROWS; y++) {
+        state.board[y].fill(2); state.board[y][4] = 0;
+      }
+      state.piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 1 };
+    }
+    state.gameOver = false;
+    state.nextQueue = [0, 1, 2, 3, 4];
+    state.bag = [5, 6];
+    state.lastLockResult = null;
+    state.lockElapsed = 0;
+    state.dropElapsed = 0;
+  }
+  function queueRows(queue) { return queue.reduce((sum, packet) => sum + packet.rows, 0); }
+  function assertQueueSafe(queue) {
+    assert.ok(queue.every(packet => packet.rows > 0 && packet.holeColumn >= 0 && packet.holeColumn < COLS));
+    assert.ok(queueRows(queue) >= 0);
+  }
+  function runScenario(firstSide, seed, humanLines, cpuLines, humanIncoming, cpuIncoming) {
+    startVsEngineTest({ seed });
+    setupVsScenarioState(currentPlayerState, humanLines);
+    setupVsScenarioState(secondaryPlayerState, cpuLines);
+    if (humanIncoming > 0) enqueueGarbagePacket(attackGarbageState.humanIncoming, humanIncoming, 2);
+    if (cpuIncoming > 0) enqueueGarbagePacket(attackGarbageState.secondIncoming, cpuIncoming, 7);
+    if (firstSide === "human") {
+      prepareVsLock("human", currentPlayerState); prepareVsLock("cpu", secondaryPlayerState);
+    } else {
+      prepareVsLock("cpu", secondaryPlayerState); prepareVsLock("human", currentPlayerState);
+    }
+    const tx = flushVsSettlementWindow();
+    const snapshot = {
+      humanBoard: JSON.stringify(currentPlayerState.board),
+      cpuBoard: JSON.stringify(secondaryPlayerState.board),
+      humanIncoming: JSON.stringify(attackGarbageState.humanIncoming),
+      cpuIncoming: JSON.stringify(attackGarbageState.secondIncoming),
+      humanTerminal: currentPlayerState.gameOver,
+      cpuTerminal: secondaryPlayerState.gameOver,
+      outcome: tx.outcome,
+      humanToCpu: tx.humanToCpu,
+      cpuToHuman: tx.cpuToHuman,
+    };
+    assert.equal(flushVsSettlementWindow(), null);
+    assert.equal(currentPlayerState.board.length, TOTAL_ROWS);
+    assert.equal(secondaryPlayerState.board.length, TOTAL_ROWS);
+    assertQueueSafe(attackGarbageState.humanIncoming);
+    assertQueueSafe(attackGarbageState.secondIncoming);
+    return snapshot;
+  }
+
+  // 同じseedは同じcanonical sequenceを生成し、各7個単位は完全な7-bagになる。
+  const sourceA = createVsPieceSource(0x12345678);
+  const sourceB = createVsPieceSource(0x12345678);
+  const sequenceA = Array.from({ length: 1000 }, () => nextVsPieceType(sourceA, "human"));
+  const sequenceB = Array.from({ length: 1000 }, () => nextVsPieceType(sourceB, "human"));
+  assert.deepEqual(sequenceA, sequenceB);
+  assert.ok(sequenceA.every(type => type >= 0 && type < 7));
+  for (let offset = 0; offset + 7 <= sequenceA.length; offset += 7) {
+    assert.deepEqual([...sequenceA.slice(offset, offset + 7)].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6]);
+  }
+
+  // HumanとCPUの同じcursor indexは同じpieceになり、cursor自体は独立して進む。
+  const equalSource = createVsPieceSource(99);
+  const equalHuman = Array.from({ length: 100 }, () => nextVsPieceType(equalSource, "human"));
+  const equalCpu = Array.from({ length: 100 }, () => nextVsPieceType(equalSource, "cpu"));
+  assert.deepEqual(equalHuman, equalCpu);
+  const cursorSource = createVsPieceSource(101);
+  Array.from({ length: 20 }, () => nextVsPieceType(cursorSource, "human"));
+  assert.equal(cursorSource.cpuCursor, 0);
+  Array.from({ length: 5 }, () => nextVsPieceType(cursorSource, "cpu"));
+  assert.equal(cursorSource.humanCursor, 20);
+  assert.equal(cursorSource.cpuCursor, 5);
+  const catchUpSource = createVsPieceSource(102);
+  const catchUpHuman = Array.from({ length: 20 }, () => nextVsPieceType(catchUpSource, "human"));
+  const catchUpCpu = Array.from({ length: 5 }, () => nextVsPieceType(catchUpSource, "cpu"));
+  catchUpCpu.push(...Array.from({ length: 15 }, () => nextVsPieceType(catchUpSource, "cpu")));
+  assert.deepEqual(catchUpCpu, catchUpHuman);
+
+  // Garbage RNGはPiece RNGと分離され、recipientごとのstreamも独立している。
+  function pieceSequenceWithGarbage(injectGarbage) {
+    const source = createVsPieceSource(777);
+    return Array.from({ length: 200 }, (_, index) => {
+      if (injectGarbage && index % 3 === 0) {
+        createGarbagePacket(1, undefined, source.garbageRandom.human);
+        createGarbagePacket(1, undefined, source.garbageRandom.cpu);
+      }
+      return nextVsPieceType(source, "human");
+    });
+  }
+  assert.deepEqual(pieceSequenceWithGarbage(false), pieceSequenceWithGarbage(true));
+  const recipientBaseline = createVsPieceSource(778);
+  const baselineCpuHoles = Array.from({ length: 3 }, () => createGarbagePacket(1, undefined, recipientBaseline.garbageRandom.cpu).holeColumn);
+  const recipientStressed = createVsPieceSource(778);
+  Array.from({ length: 12 }, () => createGarbagePacket(1, undefined, recipientStressed.garbageRandom.human));
+  const stressedCpuHoles = Array.from({ length: 3 }, () => createGarbagePacket(1, undefined, recipientStressed.garbageRandom.cpu).holeColumn);
+  assert.deepEqual(stressedCpuHoles, baselineCpuHoles);
+  const pairedSource = createVsPieceSource(779);
+  const pairedHumanHoles = Array.from({ length: 4 }, () => createGarbagePacket(1, undefined, pairedSource.garbageRandom.human).holeColumn);
+  const pairedCpuHoles = Array.from({ length: 4 }, () => createGarbagePacket(1, undefined, pairedSource.garbageRandom.cpu).holeColumn);
+  assert.deepEqual(pairedHumanHoles, pairedCpuHoles);
+
+  // 0 attack / fully cancelled attackはGarbage RNGを消費しない。
+  function nextHoleAfterNoAttack(seed) {
+    startVsEngineTest({ seed });
+    setupVsScenarioState(currentPlayerState, 0);
+    prepareVsLock("human", currentPlayerState);
+    flushVsSettlementWindow();
+    return createGarbagePacket(1, undefined, vsMatchState.pieceSource.garbageRandom.human).holeColumn;
+  }
+  function nextHoleAfterCancellation(seed) {
+    startVsEngineTest({ seed });
+    setupVsScenarioState(currentPlayerState, 2);
+    enqueueGarbagePacket(attackGarbageState.humanIncoming, 1, 3);
+    prepareVsLock("human", currentPlayerState);
+    flushVsSettlementWindow();
+    return createGarbagePacket(1, undefined, vsMatchState.pieceSource.garbageRandom.human).holeColumn;
+  }
+  function expectedHole(seed) {
+    const source = createVsPieceSource(seed);
+    return createGarbagePacket(1, undefined, source.garbageRandom.human).holeColumn;
+  }
+  assert.equal(nextHoleAfterNoAttack(780), expectedHole(780));
+  assert.equal(nextHoleAfterCancellation(781), expectedHole(781));
+
+  // VSのPlayerStateは独立Arrayを持ち、HOLDのempty/swapがcanonical cursorを正しく扱う。
+  startVsEngineTest({ seed: 800 });
+  assert.notStrictEqual(currentPlayerState.nextQueue, secondaryPlayerState.nextQueue);
+  assert.notStrictEqual(currentPlayerState.bag, secondaryPlayerState.bag);
+  assert.notStrictEqual(currentPlayerState.board, secondaryPlayerState.board);
+  assert.deepEqual(currentPlayerState.nextQueue, secondaryPlayerState.nextQueue);
+  const humanCursorBeforeHold = vsMatchState.pieceSource.humanCursor;
+  const cpuCursorBeforeHold = vsMatchState.pieceSource.cpuCursor;
+  holdPlayer(currentPlayerState);
+  assert.equal(vsMatchState.pieceSource.humanCursor, humanCursorBeforeHold + 1);
+  assert.equal(vsMatchState.pieceSource.cpuCursor, cpuCursorBeforeHold);
+  currentPlayerState.holdUsed = false;
+  const humanCursorBeforeSwap = vsMatchState.pieceSource.humanCursor;
+  holdPlayer(currentPlayerState);
+  assert.equal(vsMatchState.pieceSource.humanCursor, humanCursorBeforeSwap);
+
+  // Rematchはsource/cursorを作り直し、EXIT後にVS sourceを保持しない。
+  const oldSource = vsMatchState.pieceSource;
+  startFreshVsMatch({ seed: 801 });
+  assert.notStrictEqual(vsMatchState.pieceSource, oldSource);
+  assert.equal(vsMatchState.pieceSource.seed, 801);
+  assert.equal(vsMatchState.pieceSource.humanCursor, 6);
+  assert.equal(vsMatchState.pieceSource.cpuCursor, 6);
+  exitVsMatch();
+  assert.equal(vsMatchState.pieceSource, null);
+  assert.equal(vsEngineTestActive, false);
+
+  // v0.1のAttack表と、Phase 7B2のtransaction semanticsを固定する。
+  assert.deepEqual([0, 1, 2, 3, 4].map(lines => calculateAttack({ lines })), [0, 0, 1, 2, 4]);
+  const orderCases = Array.from({ length: 200 }, (_, index) => ({
+    seed: 900 + index,
+    humanLines: index % 5,
+    cpuLines: (index * 3) % 5,
+    humanIncoming: index % 3,
+    cpuIncoming: (index * 2) % 3,
+  }));
+  for (const scenario of orderCases) {
+    const humanFirst = runScenario("human", scenario.seed, scenario.humanLines, scenario.cpuLines, scenario.humanIncoming, scenario.cpuIncoming);
+    const cpuFirst = runScenario("cpu", scenario.seed, scenario.humanLines, scenario.cpuLines, scenario.humanIncoming, scenario.cpuIncoming);
+    assert.deepEqual(cpuFirst, humanFirst);
+  }
+
+  // sideを入れ替えたfixtureも結果が反転し、左右のengine処理に差がない。
+  const mirrorA = runScenario("human", 1200, 4, 2, 1, 0);
+  const mirrorB = runScenario("human", 1200, 2, 4, 0, 1);
+  assert.equal(mirrorA.humanToCpu, mirrorB.cpuToHuman);
+  assert.equal(mirrorA.cpuToHuman, mirrorB.humanToCpu);
+  assert.equal(mirrorA.outcome, mirrorB.outcome);
+  assert.equal(mirrorA.humanBoard, mirrorB.cpuBoard);
+  assert.equal(mirrorA.cpuBoard, mirrorB.humanBoard);
+`);
+console.log("PASS: Phase 8A canonical 7-bag fairness, independent cursors, RNG separation, mirror symmetry and deterministic settlement stress.");
