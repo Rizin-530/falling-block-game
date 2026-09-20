@@ -310,6 +310,89 @@ pureBoardTests(`
 `);
 console.log("PASS: Phase 1 pure collision and landing helpers, wrapper parity and mutation safety.");
 
+const playerStateTests = createGame();
+playerStateTests(`
+  const normal = createPlayerState();
+  assert.equal(normal.board.length, TOTAL_ROWS);
+  assert.ok(normal.board.every(row => row.length === COLS && row.every(cell => cell === 0)));
+  assert.equal(normal.piece, null);
+  assert.equal(normal.score, 0);
+  assert.equal(normal.totalLines, 0);
+  assert.equal(normal.level, 1);
+  assert.equal(normal.heldType, null);
+  assert.equal(normal.holdUsed, false);
+  assert.equal(normal.dropElapsed, 0);
+  assert.equal(normal.lockElapsed, 0);
+  assert.equal(normal.lockResets, 0);
+  assert.equal(normal.lastRotationKick, null);
+  assert.equal(normal.lastLockResult, null);
+  assert.equal(normal.lastPerfectClear, false);
+  assert.equal(normal.backToBackActive, false);
+  assert.equal(normal.comboCount, -1);
+  assert.deepEqual(normal.runStats, createEmptyRunStats());
+  const debug = createPlayerState({ selectedStartLevel: 5 });
+  assert.equal(debug.totalLines, 40); assert.equal(debug.level, 5);
+
+  // Every mutable container belongs to its own PlayerState instance.
+  const stateA = createPlayerState();
+  const stateB = createPlayerState();
+  assert.notEqual(stateA.board, stateB.board);
+  assert.notEqual(stateA.board[0], stateB.board[0]);
+  assert.notEqual(stateA.nextQueue, stateB.nextQueue);
+  assert.notEqual(stateA.bag, stateB.bag);
+  assert.notEqual(stateA.runStats, stateB.runStats);
+  stateA.board[0][0] = 7; stateA.nextQueue.push(3); stateA.bag.push(4);
+  stateA.runStats.tetrises = 1; stateA.lastLockResult = { spin: "NONE", lines: 1 };
+  assert.equal(stateB.board[0][0], 0); assert.equal(stateB.nextQueue.length, 0);
+  assert.equal(stateB.bag.length, 0); assert.equal(stateB.runStats.tetrises, 0);
+  assert.equal(stateB.lastLockResult, null);
+
+  // State-aware spawn and queue progression do not touch another state.
+  const spawnA = createPlayerState(); const spawnB = createPlayerState();
+  spawnPieceFor(spawnA, 0); spawnPieceFor(spawnB, 2);
+  spawnA.nextQueue = [1, 2, 3, 4, 5];
+  const spawnBQueue = JSON.stringify(spawnB.nextQueue);
+  const spawnBPiece = JSON.stringify(spawnB.piece);
+  advancePieceFor(spawnA);
+  assert.equal(JSON.stringify(spawnB.nextQueue), spawnBQueue);
+  assert.equal(JSON.stringify(spawnB.piece), spawnBPiece);
+  assert.equal(spawnA.piece.color, 2);
+
+  // Movement and rotation update only the selected state, including lock metadata.
+  const moveA = createPlayerState(); const moveB = createPlayerState();
+  spawnPieceFor(moveA, 0); spawnPieceFor(moveB, 0);
+  moveA.piece.y = TOTAL_ROWS - 2; moveB.piece.y = TOTAL_ROWS - 2;
+  moveA.lockElapsed = 100; moveA.lockResets = 0; moveB.lockElapsed = 200;
+  const moveBSnapshot = JSON.stringify(moveB);
+  assert.equal(movePlayer(moveA, -1, 0), true);
+  assert.equal(moveA.lockElapsed, 0); assert.equal(moveA.lockResets, 1);
+  assert.equal(JSON.stringify(moveB), moveBSnapshot);
+
+  const rotateA = createPlayerState(); const rotateB = createPlayerState();
+  spawnPieceFor(rotateA, 2); spawnPieceFor(rotateB, 2);
+  const rotateBSnapshot = JSON.stringify(rotateB);
+  rotatePlayer(rotateA, 1);
+  assert.equal(rotateA.piece.rotation, 1);
+  assert.equal(JSON.stringify(rotateB), rotateBSnapshot);
+
+  // HOLD uses only the selected state's piece, hold slot and queue.
+  const holdA = createPlayerState(); const holdB = createPlayerState();
+  spawnPieceFor(holdA, 2); spawnPieceFor(holdB, 5);
+  holdA.nextQueue = [0, 1, 2, 3, 4]; holdA.bag = [];
+  const holdBStateSnapshot = JSON.stringify(holdB);
+  holdPlayer(holdA);
+  assert.equal(holdA.heldType, 2); assert.equal(holdA.holdUsed, true);
+  assert.equal(JSON.stringify(holdB), holdBStateSnapshot);
+
+  // Legacy names still point at the one current PlayerState rather than a shadow copy.
+  restart();
+  const currentState = currentPlayerState;
+  board[0][0] = 6; score = 12;
+  assert.equal(currentState.board[0][0], 6); assert.equal(currentState.score, 12);
+  assert.equal(board, currentState.board); assert.equal(piece, currentState.piece);
+`);
+console.log("PASS: Phase 2 PlayerState factory, independent instances, state-aware operations and legacy parity.");
+
 const review = createGame();
 review(`
   // ブラウザのショートカットで盤面を変更しない。

@@ -165,40 +165,58 @@ try {
   // 保存が許可されていなくてもゲームは実行できる。
 }
 highScoreElement.textContent = highScore;
-let board;
-let piece;
-let score;
-let gameOver;
+function createEmptyRunStats() {
+  return { activePlayMs: 0, tetrises: 0, tSpins: 0, tSpinMinis: 0, perfectClears: 0, maxCombo: 0 };
+}
+
+function createPlayerState({ selectedStartLevel = 1 } = {}) {
+  return {
+    board: Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0)),
+    piece: null,
+    score: 0,
+    gameOver: false,
+    nextQueue: [],
+    heldType: null,
+    holdUsed: false,
+    totalLines: (selectedStartLevel - 1) * 10,
+    level: selectedStartLevel,
+    dropElapsed: 0,
+    lockElapsed: 0,
+    lockResets: 0,
+    bag: [],
+    lastRotationKick: null,
+    lastLockResult: null,
+    lastPerfectClear: false,
+    backToBackActive: false,
+    comboCount: -1,
+    runStats: createEmptyRunStats(),
+  };
+}
+
+let currentPlayerState = createPlayerState();
+const PLAYER_STATE_FIELDS = [
+  "board", "piece", "score", "gameOver", "nextQueue", "heldType", "holdUsed",
+  "totalLines", "level", "dropElapsed", "lockElapsed", "lockResets", "bag",
+  "lastRotationKick", "lastLockResult", "lastPerfectClear", "backToBackActive",
+  "comboCount", "runStats",
+];
+for (const field of PLAYER_STATE_FIELDS) {
+  Object.defineProperty(globalThis, field, {
+    configurable: true,
+    get: () => currentPlayerState[field],
+    set: value => { currentPlayerState[field] = value; },
+  });
+}
+
 let marathonComplete;
 let paused;
 let startScreenOpen = true;
 // Manual Pauseとは分けて、windowが非アクティブな間だけsimulationを止める。
 let focusSuspended = false;
-let nextQueue = [];
-let heldType;
-let holdUsed;
-let totalLines;
-let level;
-let dropElapsed = 0;
-let lockElapsed = 0;
-let lockResets = 0;
 let lastTime = null;
-let bag = [];
-// nullは最後の成功した動きが回転ではないことを表す。候補番号は0始まり。
-let lastRotationKick = null;
-// 確定済みの結果は次のSpawnでも保持し、進行中ピースの回転資格とは分離する。
-let lastLockResult = null;
-let lastPerfectClear = false;
-let backToBackActive = false;
-// -1: 継続なし、0: 最初の消去、1以上: Comboボーナス対象。
-let comboCount = -1;
 // Level 1は通常ゲーム。高Level選択時だけHigh Scoreの対象外にする。
 let selectedStartLevel = 1;
 let isQaRun = false;
-function createEmptyRunStats() {
-  return { activePlayMs: 0, tetrises: 0, tSpins: 0, tSpinMinis: 0, perfectClears: 0, maxCombo: 0 };
-}
-let runStats = createEmptyRunStats();
 let resultsStatsSnapshot = null;
 
 function updateProgressUI() {
@@ -610,15 +628,19 @@ function hideResults() {
 }
 
 // 7種類を1回ずつ使う順番をシャッフルする。
-function nextType() {
-  if (bag.length === 0) {
-    bag = [0, 1, 2, 3, 4, 5, 6];
-    for (let i = bag.length - 1; i > 0; i--) {
+function nextTypeFor(state) {
+  if (state.bag.length === 0) {
+    state.bag = [0, 1, 2, 3, 4, 5, 6];
+    for (let i = state.bag.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [bag[i], bag[j]] = [bag[j], bag[i]];
+      [state.bag[i], state.bag[j]] = [state.bag[j], state.bag[i]];
     }
   }
-  return bag.pop();
+  return state.bag.pop();
+}
+
+function nextType() {
+  return nextTypeFor(currentPlayerState);
 }
 
 function collidesOn(board, shape, x, y) {
@@ -634,14 +656,21 @@ function collides(shape, x, y) {
   return collidesOn(board, shape, x, y);
 }
 
-function spawnPiece(type = nextQueue[0]) {
-  lastRotationKick = null;
+function spawnPieceFor(state, type = state.nextQueue[0]) {
+  state.lastRotationKick = null;
   const shape = ROTATIONS[type][0];
-  piece = { shape, rotation: 0, x: Math.floor((COLS - shape[0].length) / 2), y: SPAWN_Y, color: type + 1 };
-  dropElapsed = 0;
-  lockElapsed = 0;
-  lockResets = 0;
-  if (collides(shape, piece.x, piece.y)) endGame();
+  state.piece = { shape, rotation: 0, x: Math.floor((COLS - shape[0].length) / 2), y: SPAWN_Y, color: type + 1 };
+  state.dropElapsed = 0;
+  state.lockElapsed = 0;
+  state.lockResets = 0;
+  if (collidesOn(state.board, shape, state.piece.x, state.piece.y)) state.gameOver = true;
+  return state.piece;
+}
+
+function spawnPiece(type = nextQueue[0]) {
+  const spawned = spawnPieceFor(currentPlayerState, type);
+  if (currentPlayerState.gameOver) endGame();
+  return spawned;
 }
 
 function endGame() {
@@ -669,24 +698,35 @@ function completeMarathon() {
   showResults("MARATHON COMPLETE");
 }
 
+function advancePieceFor(state) {
+  const type = state.nextQueue.shift();
+  while (state.nextQueue.length < NEXT_COUNT) state.nextQueue.push(nextTypeFor(state));
+  return spawnPieceFor(state, type);
+}
+
 function advancePiece() {
-  const type = nextQueue.shift();
-  while (nextQueue.length < NEXT_COUNT) nextQueue.push(nextType());
-  spawnPiece(type);
+  const spawned = advancePieceFor(currentPlayerState);
+  if (currentPlayerState.gameOver) endGame();
+  return spawned;
+}
+
+function holdPlayer(state) {
+  if (state.holdUsed) return;
+  const type = state.piece.color - 1;
+  if (state.heldType === null) {
+    state.heldType = type;
+    advancePieceFor(state);
+  } else {
+    const previous = state.heldType;
+    state.heldType = type;
+    spawnPieceFor(state, previous);
+  }
+  state.holdUsed = true;
 }
 
 function hold() {
-  if (holdUsed) return;
-  const type = piece.color - 1;
-  if (heldType === null) {
-    heldType = type;
-    advancePiece();
-  } else {
-    const previous = heldType;
-    heldType = type;
-    spawnPiece(previous);
-  }
-  holdUsed = true;
+  holdPlayer(currentPlayerState);
+  if (currentPlayerState.gameOver) endGame();
 }
 
 function getGravityInterval(currentLevel = level) {
@@ -737,26 +777,38 @@ function drawPreview(id, types) {
   });
 }
 
-function isGrounded() {
-  return collides(piece.shape, piece.x, piece.y + 1);
+function isGroundedFor(state) {
+  return collidesOn(state.board, state.piece.shape, state.piece.x, state.piece.y + 1);
 }
 
-function resetLockDelay() {
-  if (lockResets < MAX_LOCK_RESETS) {
-    lockElapsed = 0;
-    lockResets++;
+function isGrounded() {
+  return isGroundedFor(currentPlayerState);
+}
+
+function resetLockDelayFor(state) {
+  if (state.lockResets < MAX_LOCK_RESETS) {
+    state.lockElapsed = 0;
+    state.lockResets++;
   }
 }
 
-function move(dx, dy) {
-  if (collides(piece.shape, piece.x + dx, piece.y + dy)) return false;
-  const wasGrounded = isGrounded();
-  piece.x += dx;
-  piece.y += dy;
+function resetLockDelay() {
+  resetLockDelayFor(currentPlayerState);
+}
+
+function movePlayer(state, dx, dy) {
+  if (collidesOn(state.board, state.piece.shape, state.piece.x + dx, state.piece.y + dy)) return false;
+  const wasGrounded = isGroundedFor(state);
+  state.piece.x += dx;
+  state.piece.y += dy;
   // Gravity・Dropを含む実移動で解除。衝突した入力ではここへ到達しない。
-  if (dx !== 0 || dy !== 0) lastRotationKick = null;
-  if (dx !== 0 && wasGrounded) resetLockDelay();
+  if (dx !== 0 || dy !== 0) state.lastRotationKick = null;
+  if (dx !== 0 && wasGrounded) resetLockDelayFor(state);
   return true;
+}
+
+function move(dx, dy) {
+  return movePlayer(currentPlayerState, dx, dy);
 }
 
 // SRSの左右回転候補。キーは回転前>回転後、座標は右・下が正。
@@ -782,23 +834,27 @@ const I_KICKS = {
   "1>0": [[0,0], [2,0], [-1,0], [2,-1], [-1,2]],
 };
 
-function rotate(direction = 1) {
-  const rotation = (piece.rotation + direction + 4) % 4;
-  const rotated = ROTATIONS[piece.color - 1][rotation];
-  const transition = `${piece.rotation}>${rotation}`;
-  const kicks = piece.color === 2 ? [[0,0]]
-    : (piece.color === 1 ? I_KICKS : COMMON_KICKS)[transition];
+function rotatePlayer(state, direction = 1) {
+  const rotation = (state.piece.rotation + direction + 4) % 4;
+  const rotated = ROTATIONS[state.piece.color - 1][rotation];
+  const transition = `${state.piece.rotation}>${rotation}`;
+  const kicks = state.piece.color === 2 ? [[0,0]]
+    : (state.piece.color === 1 ? I_KICKS : COMMON_KICKS)[transition];
   for (const [kickIndex, [dx, dy]] of kicks.entries()) {
-    if (collides(rotated, piece.x + dx, piece.y + dy)) continue;
-    const wasGrounded = isGrounded();
-    piece.x += dx;
-    piece.y += dy;
-    piece.shape = rotated;
-    piece.rotation = rotation;
-    lastRotationKick = kickIndex;
-    if (wasGrounded) resetLockDelay();
+    if (collidesOn(state.board, rotated, state.piece.x + dx, state.piece.y + dy)) continue;
+    const wasGrounded = isGroundedFor(state);
+    state.piece.x += dx;
+    state.piece.y += dy;
+    state.piece.shape = rotated;
+    state.piece.rotation = rotation;
+    state.lastRotationKick = kickIndex;
+    if (wasGrounded) resetLockDelayFor(state);
     return;
   }
+}
+
+function rotate(direction = 1) {
+  return rotatePlayer(currentPlayerState, direction);
 }
 
 function addScore(points) {
@@ -970,28 +1026,15 @@ function restart() {
   startOverlay.hidden = true;
   startOverlay.inert = settingsOpen;
   gameUiElement.inert = settingsOpen || qaOpen;
-  comboCount = -1;
-  backToBackActive = false;
-  lastLockResult = null;
-  lastPerfectClear = false;
-  runStats = createEmptyRunStats();
+  currentPlayerState = createPlayerState({ selectedStartLevel });
   clearHeldKeys();
-  board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
-  score = 0;
-  gameOver = false;
   marathonComplete = false;
   paused = false;
   updatePauseVisual();
-  heldType = null;
-  holdUsed = false;
-  totalLines = (selectedStartLevel - 1) * 10;
-  level = selectedStartLevel;
   levelElement.textContent = level;
   pauseButton.disabled = false;
   pauseButton.textContent = "一時停止（P）";
-  bag = [];
   nextQueue = [nextType()];
-  dropElapsed = 0;
   lastTime = null;
   scoreElement.textContent = "0";
   statusElement.textContent = "プレイ中";
