@@ -621,13 +621,17 @@ function nextType() {
   return bag.pop();
 }
 
-function collides(shape, x, y) {
+function collidesOn(board, shape, x, y) {
   return shape.some((row, dy) => row.some((cell, dx) => {
     if (!cell) return false;
     const bx = x + dx;
     const by = y + dy;
     return bx < 0 || bx >= COLS || by < 0 || by >= TOTAL_ROWS || board[by][bx] !== 0;
   }));
+}
+
+function collides(shape, x, y) {
+  return collidesOn(board, shape, x, y);
 }
 
 function spawnPiece(type = nextQueue[0]) {
@@ -705,10 +709,14 @@ function togglePause(time = performance.now()) {
   pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
 }
 
-function ghostY() {
+function landingYOn(board, piece) {
   let y = piece.y;
-  while (!collides(piece.shape, piece.x, y + 1)) y++;
+  while (!collidesOn(board, piece.shape, piece.x, y + 1)) y++;
   return y;
+}
+
+function ghostY() {
+  return landingYOn(board, piece);
 }
 
 function drawPreview(id, types) {

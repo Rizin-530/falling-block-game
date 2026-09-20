@@ -257,6 +257,59 @@ const blockedStorage = new Proxy({}, {
 createGame(blockedStorage)("addScore(10); restart(); assert.equal(highScore, 10)");
 console.log("PASS: existing controls, collisions, rotation, line clears, scores, gravity, game over, restart; NEXT, HOLD, ghost, levels, pause, high-score storage.");
 
+const pureBoardTests = createGame();
+pureBoardTests(`
+  const emptyBoard = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  const single = [[1]];
+  const shapeSnapshot = JSON.stringify(single);
+
+  // Pure collision helper keeps the current wall, floor, block and hidden-row semantics.
+  assert.equal(collidesOn(emptyBoard, single, 0, HIDDEN_ROWS - 1), false);
+  assert.equal(collidesOn(emptyBoard, single, -1, HIDDEN_ROWS), true);
+  assert.equal(collidesOn(emptyBoard, single, COLS, HIDDEN_ROWS), true);
+  assert.equal(collidesOn(emptyBoard, single, 0, -1), true);
+  assert.equal(collidesOn(emptyBoard, single, 0, TOTAL_ROWS), true);
+  emptyBoard[HIDDEN_ROWS + 4][3] = 7;
+  const collisionBoardSnapshot = JSON.stringify(emptyBoard);
+  assert.equal(collidesOn(emptyBoard, single, 3, HIDDEN_ROWS + 4), true);
+  assert.equal(JSON.stringify(emptyBoard), collisionBoardSnapshot);
+  assert.equal(JSON.stringify(single), shapeSnapshot);
+
+  // The legacy wrapper has the same result for representative positions.
+  board = emptyBoard;
+  for (const [shape, x, y] of [
+    [single, 0, HIDDEN_ROWS],
+    [single, -1, HIDDEN_ROWS],
+    [single, 3, HIDDEN_ROWS + 4],
+    [[[1, 1], [1, 1]], 4, TOTAL_ROWS - 2],
+  ]) assert.equal(collides(shape, x, y), collidesOn(emptyBoard, shape, x, y));
+
+  // landingYOn handles empty, stacked and uneven surfaces without mutation.
+  const emptyBoardBeforeLanding = JSON.stringify(emptyBoard);
+  const emptyPiece = { shape: [[1, 1], [1, 1]], x: 4, y: HIDDEN_ROWS, rotation: 0, color: 2 };
+  const emptyPieceSnapshot = JSON.stringify(emptyPiece);
+  assert.equal(landingYOn(emptyBoard, emptyPiece), TOTAL_ROWS - 2);
+  assert.equal(JSON.stringify(emptyBoard), emptyBoardBeforeLanding);
+  assert.equal(JSON.stringify(emptyPiece), emptyPieceSnapshot);
+
+  const stackedBoard = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  stackedBoard[TOTAL_ROWS - 2][4] = 7;
+  const stackedPiece = { shape: [[1]], x: 4, y: HIDDEN_ROWS, rotation: 0, color: 1 };
+  assert.equal(landingYOn(stackedBoard, stackedPiece), TOTAL_ROWS - 3);
+  stackedBoard[TOTAL_ROWS - 4][5] = 7;
+  const unevenPiece = { shape: [[1, 1]], x: 4, y: HIDDEN_ROWS, rotation: 0, color: 1 };
+  assert.equal(landingYOn(stackedBoard, unevenPiece), TOTAL_ROWS - 5);
+
+  // A piece near the wall and the global ghost wrapper agree with the pure helper.
+  const wallPiece = { shape: [[1, 1]], x: 0, y: HIDDEN_ROWS, rotation: 0, color: 1 };
+  assert.equal(landingYOn(stackedBoard, wallPiece), TOTAL_ROWS - 1);
+  restart(); piece = { shape: [[1, 1]], x: 0, y: HIDDEN_ROWS, rotation: 0, color: 1 };
+  const pieceSnapshot = JSON.stringify(piece);
+  assert.equal(ghostY(), landingYOn(board, piece));
+  assert.equal(JSON.stringify(piece), pieceSnapshot);
+`);
+console.log("PASS: Phase 1 pure collision and landing helpers, wrapper parity and mutation safety.");
+
 const review = createGame();
 review(`
   // ブラウザのショートカットで盤面を変更しない。
