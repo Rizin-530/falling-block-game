@@ -3543,3 +3543,130 @@ playAgainTests(`
   advanceTime(32000); assert.equal(runStats.activePlayMs, 1000); assert.equal(piece.y, freshY + 1);
 `);
 console.log("PASS: PLAY AGAIN always starts a fresh Normal Level 1 run while Restart preserves current Debug/QA conditions.");
+
+const attackGarbageTests = createGame();
+attackGarbageTests(`
+  // AttackはLock Resultのライン数だけを使い、既存の得点メタデータを参照しない。
+  assert.deepEqual([0, 1, 2, 3, 4].map(lines => calculateAttack({ lines })), [0, 0, 1, 2, 4]);
+  assert.equal(calculateAttack({ lines: 2, spin: "T_SPIN", perfectClear: true }), 1);
+  assert.equal(calculateAttack({ lines: 4, spin: "T_SPIN", perfectClear: true }), 4);
+  assert.equal(calculateAttack({ lines: 99 }), 0);
+
+  // Human/CPUのIncoming queueは独立し、0以下のPacketは作らない。
+  const attackState = createAttackGarbageState();
+  assert.notEqual(attackState.humanIncoming, attackState.secondIncoming);
+  assert.equal(createGarbagePacket(0, 3), null);
+  enqueueGarbagePacket(attackState.humanIncoming, 0, 3);
+  enqueueGarbagePacket(attackState.humanIncoming, 2, 4);
+  enqueueGarbagePacket(attackState.secondIncoming, { rows: 1, holeColumn: 8 });
+  assert.equal(totalIncomingGarbage(attackState.humanIncoming), 2);
+  assert.equal(totalIncomingGarbage(attackState.secondIncoming), 1);
+  assert.deepEqual(attackState.humanIncoming, [{ rows: 2, holeColumn: 4 }]);
+
+  // FIFO取消はPacket順を守り、部分消化時も後続Packetのholeを保持する。
+  const incoming = [{ rows: 2, holeColumn: 1 }, { rows: 3, holeColumn: 7 }];
+  const originalIncoming = JSON.stringify(incoming);
+  const cancellation = cancelIncomingGarbage(incoming, 3);
+  assert.equal(cancellation.cancelled, 3);
+  assert.equal(cancellation.remainingAttack, 0);
+  assert.deepEqual(cancellation.queue, [{ rows: 2, holeColumn: 7 }]);
+  assert.equal(JSON.stringify(incoming), originalIncoming);
+  const excess = cancelIncomingGarbage([{ rows: 1, holeColumn: 2 }], 3);
+  assert.equal(excess.cancelled, 1);
+  assert.equal(excess.remainingAttack, 2);
+  assert.deepEqual(excess.queue, []);
+
+  // Garbage rowは常にCOLS幅で、hole以外が占有される。
+  const garbageRow = createGarbageRow(4);
+  assert.equal(garbageRow.length, COLS);
+  assert.equal(garbageRow[4], 0);
+  assert.equal(garbageRow.filter(cell => cell === GARBAGE_CELL).length, COLS - 1);
+  const applyState = createPlayerState();
+  const originalBottom = applyState.board[TOTAL_ROWS - 1];
+  const applyQueue = [{ rows: 2, holeColumn: 4 }];
+  const applied = applyGarbagePackets(applyState, applyQueue);
+  assert.deepEqual(applied, { appliedRows: 2, garbageOverflow: false });
+  assert.equal(applyQueue.length, 0);
+  assert.equal(applyState.board.length, TOTAL_ROWS);
+  assert.ok(applyState.board.every(row => row.length === COLS));
+  assert.deepEqual(applyState.board[TOTAL_ROWS - 1], garbageRow);
+  assert.notEqual(applyState.board[TOTAL_ROWS - 1], originalBottom);
+  applyState.board[0][0] = 1;
+  const overflowQueue = [{ rows: 1, holeColumn: 0 }];
+  assert.deepEqual(applyGarbagePackets(applyState, overflowQueue), { appliedRows: 1, garbageOverflow: true });
+  const emptyTopState = createPlayerState();
+  const emptyTopQueue = [{ rows: 1, holeColumn: 0 }];
+  assert.deepEqual(applyGarbagePackets(emptyTopState, emptyTopQueue), { appliedRows: 1, garbageOverflow: false });
+
+  // Lock Resultのライン数から攻撃を作り、Incomingを先に相殺してから適用する。
+  function makeLineClearState(lines) {
+    const state = createPlayerState();
+    state.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+    state.board[0][0] = 7; // Perfect Clearを避け、攻撃がスコアへ影響しないことも検証する。
+    for (let y = TOTAL_ROWS - lines; y < TOTAL_ROWS; y++) {
+      state.board[y].fill(2); state.board[y][4] = 0;
+    }
+    state.piece = { rotation: 0, shape: [[1], [1], [1], [1]], x: 4, y: TOTAL_ROWS - 4, color: 1 };
+    return state;
+  }
+  for (const [lines, expectedAttack] of [[1, 0], [2, 1], [3, 2], [4, 4]]) {
+    const state = makeLineClearState(lines);
+    const opponent = [];
+    const outcome = resolveVersusLockFor(state, [], opponent, { holeColumn: 6 });
+    assert.equal(outcome.lockResult.lines, lines);
+    assert.equal(outcome.rawAttack, expectedAttack);
+    assert.equal(state.score, [0, 100, 300, 500, 800][lines]);
+    assert.equal(outcome.outgoingAttack, expectedAttack);
+    assert.equal(totalIncomingGarbage(opponent), expectedAttack);
+    assert.equal(state.gameOver, false);
+    assert.ok(state.piece);
+  }
+  const cancellationState = makeLineClearState(2);
+  const cancellationQueue = [{ rows: 3, holeColumn: 3 }];
+  const cancellationOpponent = [];
+  const cancellationOutcome = resolveVersusLockFor(cancellationState, cancellationQueue, cancellationOpponent);
+  assert.equal(cancellationOutcome.rawAttack, 1);
+  assert.equal(cancellationOutcome.cancelled, 1);
+  assert.equal(cancellationOutcome.garbageApplied, 2);
+  assert.equal(cancellationOpponent.length, 0);
+  assert.equal(cancellationState.board[TOTAL_ROWS - 1][3], 0);
+  assert.equal(cancellationState.board[TOTAL_ROWS - 1].filter(cell => cell === GARBAGE_CELL).length, COLS - 1);
+
+  // Core LockのTop Outは攻撃・Spawnを行わない。GarbageによるoverflowだけがVS側を終端にする。
+  const lockOutState = createPlayerState();
+  lockOutState.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  lockOutState.piece = { rotation: 0, shape: [[1]], x: 0, y: 0, color: 1 };
+  const lockOutOpponent = [];
+  const lockOutOutcome = resolveVersusLockFor(lockOutState, [], lockOutOpponent);
+  assert.equal(lockOutOutcome.terminal, true);
+  assert.equal(lockOutOutcome.rawAttack, 0);
+  assert.equal(lockOutOpponent.length, 0);
+  assert.equal(lockOutState.piece.y, 0);
+  const garbageOverflowState = createPlayerState();
+  garbageOverflowState.board[0][0] = 7;
+  const garbageOverflowQueue = [{ rows: 1, holeColumn: 0 }];
+  const garbageOverflowOutcome = resolveVersusLockFor(garbageOverflowState, garbageOverflowQueue, []);
+  assert.equal(garbageOverflowOutcome.garbageOverflow, true);
+  assert.equal(garbageOverflowOutcome.terminal, true);
+  assert.equal(garbageOverflowState.gameOver, true);
+
+  // VS fixtureのRestartは両PlayerStateとIncomingを同時に初期化し、通常モードのResults/High Scoreを使わない。
+  startGame(); openQa(0); startVsEngineTest();
+  assert.equal(vsEngineTestActive, true);
+  assert.equal(dualBoardTestActive, true);
+  assert.equal(cpuTestActive, true);
+  assert.equal(totalIncomingGarbage(attackGarbageState.humanIncoming), 0);
+  assert.equal(totalIncomingGarbage(attackGarbageState.secondIncoming), 0);
+  queueQaGarbageToHuman();
+  assert.equal(totalIncomingGarbage(attackGarbageState.humanIncoming), 2);
+  restart();
+  assert.equal(totalIncomingGarbage(attackGarbageState.humanIncoming), 0);
+  assert.equal(totalIncomingGarbage(attackGarbageState.secondIncoming), 0);
+  assert.equal(currentPlayerState.gameOver, false);
+  assert.equal(secondaryPlayerState.gameOver, false);
+  assert.equal(resultsElement.hidden, true);
+  exitDualBoardTest();
+  assert.equal(vsEngineTestActive, false);
+  assert.equal(secondaryPlayerState, null);
+`);
+console.log("PASS: Phase 7A attack table, FIFO garbage cancellation/application, overflow, VS lock flow, isolation and restart reset.");

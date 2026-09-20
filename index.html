@@ -153,8 +153,10 @@
           <button id="qa-clear" type="button">CLEAR BOARD</button>
           <button id="qa-force-i" type="button">FORCE I</button>
           <button id="qa-top-out" type="button">LOAD TOP OUT TEST</button>
+          <button id="qa-garbage-human" type="button">QUEUE 2 → HUMAN</button>
           <button id="qa-dual" type="button">DUAL BOARD TEST</button>
           <button id="qa-cpu" type="button">CPU TEST</button>
+          <button id="qa-vs-engine" type="button">VS ENGINE TEST</button>
         </div>
       </section>
       <p id="qa-message" class="qa-message" role="status"></p>
@@ -167,6 +169,10 @@
   <section id="dual-board-test" class="dual-board-test" aria-label="Dual Board Test" hidden>
     <div class="dual-player-view">
       <h2>PLAYER 2</h2>
+      <div id="vs-indicators" class="vs-indicators" hidden>
+        <span>Human Incoming: <strong id="human-incoming">0</strong></span>
+        <span>CPU Incoming: <strong id="second-incoming">0</strong></span>
+      </div>
       <div class="dual-player-layout">
         <div class="dual-board-wrap"><canvas id="second-board" width="300" height="600" aria-label="Player 2のゲーム盤"></canvas><p id="second-status" class="dual-status" role="status"></p></div>
         <div class="dual-player-side">

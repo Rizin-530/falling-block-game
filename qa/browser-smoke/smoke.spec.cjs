@@ -174,3 +174,40 @@ test("DEV TOOLS CPU TEST runs an isolated CPU player", async ({ page }) => {
   await expect(page.locator("#pause-visual")).toBeHidden();
   await assertNoRuntimeIssues(issues);
 });
+
+test("DEV TOOLS VS ENGINE TEST routes attack and garbage without result screens", async ({ page }) => {
+  const issues = captureRuntimeIssues(page);
+  await startGame(page);
+  await page.locator("#open-dev-tools").click();
+  await expect(page.locator("#qa-overlay")).toBeVisible();
+  await page.locator("#qa-vs-engine").click();
+  await expect(page.locator("#qa-overlay")).toBeHidden();
+  await expect(page.locator("#dual-board-test")).toBeVisible();
+  await expect(page.locator("#vs-indicators")).toBeVisible();
+  await expect(page.locator("#human-incoming")).toHaveText("0");
+  await expect(page.locator("#second-incoming")).toHaveText("0");
+  await expect(page.locator("#second-status")).toContainText("CPU v0.1 — VS");
+
+  // DEV fixture queues a deterministic two-row packet without changing the board directly.
+  await page.locator("#open-dev-tools").click();
+  await expect(page.locator("#qa-overlay")).toBeVisible();
+  await page.locator("#qa-garbage-human").click();
+  await expect(page.locator("#human-incoming")).toHaveText("2");
+  await page.locator("#qa-close").click();
+  await expect(page.locator("#qa-overlay")).toBeHidden();
+
+  // Hard Drop locks once; incoming garbage is applied at that lock and the indicator drains.
+  await page.locator("#board").click({ position: { x: 150, y: 300 } });
+  await page.keyboard.press(" ");
+  await expect(page.locator("#human-incoming")).toHaveText("0");
+  await expect.poll(async () => Number(await page.locator("#second-score").textContent()), { timeout: 5000 }).toBeGreaterThan(0);
+
+  // VS 7A has no winner/results flow; Pause still gates the shared simulation.
+  await page.keyboard.press("p");
+  await expect(page.locator("#pause-visual")).toBeVisible();
+  await page.keyboard.press("p");
+  await expect(page.locator("#pause-visual")).toBeHidden();
+  await expect(page.locator("#status")).not.toContainText(/WIN|LOSE|DRAW/);
+  await expect(page.locator("#second-status")).not.toContainText(/WIN|LOSE|DRAW/);
+  await assertNoRuntimeIssues(issues);
+});

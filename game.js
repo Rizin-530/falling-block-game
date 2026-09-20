@@ -6,6 +6,7 @@ const HIDDEN_ROWS = 20;
 const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
 const NEXT_COUNT = 5;
 const MARATHON_TARGET_LINES = 150;
+const GARBAGE_CELL = 8;
 const CPU_V0_1_CONFIG = Object.freeze({
   thinkDelayMs: 240,
   actionIntervalMs: 90,
@@ -123,7 +124,7 @@ const ROTATIONS = SHAPES.map((shape, type) => {
   }
   return states;
 });
-const COLORS = ["", "#43d4ec", "#f4d35e", "#bc86ef", "#72d68b", "#ed6d79", "#6396ed", "#eea052"];
+const COLORS = ["", "#43d4ec", "#f4d35e", "#bc86ef", "#72d68b", "#ed6d79", "#6396ed", "#eea052", "#737b86"];
 const canvas = document.getElementById("board");
 const context = canvas.getContext("2d");
 const scoreElement = document.getElementById("score");
@@ -181,10 +182,13 @@ const secondScoreElement = document.getElementById("second-score");
 const secondLinesElement = document.getElementById("second-lines");
 const secondLevelElement = document.getElementById("second-level");
 const secondStatusElement = document.getElementById("second-status");
+const vsIndicatorsElement = document.getElementById("vs-indicators");
+const humanIncomingElement = document.getElementById("human-incoming");
+const secondIncomingElement = document.getElementById("second-incoming");
 const qaScenarioButtons = [
   document.getElementById("qa-149"), document.getElementById("qa-clear"),
   document.getElementById("qa-force-i"), document.getElementById("qa-top-out"), document.getElementById("qa-dual"),
-  document.getElementById("qa-cpu"),
+  document.getElementById("qa-cpu"), document.getElementById("qa-vs-engine"), document.getElementById("qa-garbage-human"),
 ];
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
@@ -236,12 +240,18 @@ function createPlayerState({ selectedStartLevel = 1, initialize = true } = {}) {
   return state;
 }
 
+function createAttackGarbageState() {
+  return { humanIncoming: [], secondIncoming: [] };
+}
+
 let currentPlayerState = createPlayerState({ initialize: false });
 let dualBoardTestActive = false;
 let cpuTestActive = false;
+let vsEngineTestActive = false;
 let secondaryPlayerState = null;
 let dualFrameTime = null;
 let cpuController = null;
+let attackGarbageState = createAttackGarbageState();
 const PLAYER_STATE_FIELDS = [
   "board", "piece", "score", "gameOver", "nextQueue", "heldType", "holdUsed",
   "totalLines", "level", "dropElapsed", "lockElapsed", "lockResets", "bag",
@@ -571,9 +581,12 @@ function advancePreviewSimulation(state, elapsed) {
       state.dropElapsed = 0;
       state.lockElapsed += remaining;
       if (state.lockElapsed < LOCK_DELAY) break;
-      const result = resolveLockFor(state);
+      const versus = vsEngineTestActive && state === secondaryPlayerState && attackGarbageState;
+      const result = versus
+        ? resolveVersusLockFor(state, attackGarbageState.secondIncoming, attackGarbageState.humanIncoming)
+        : resolveLockFor(state);
       if (result.terminal) break;
-      advancePieceFor(state);
+      if (!versus) advancePieceFor(state);
       remaining = Math.max(0, remaining - timeUntilLock);
       continue;
     }
@@ -586,6 +599,111 @@ function advancePreviewSimulation(state, elapsed) {
       movePlayer(state, 0, 1);
     }
   }
+}
+
+function calculateAttack(lockResult) {
+  const lines = Number.isInteger(lockResult?.lines) ? lockResult.lines : 0;
+  return [0, 0, 1, 2, 4][lines] ?? 0;
+}
+
+function createGarbagePacket(rows, holeColumn) {
+  const normalizedRows = Number.isInteger(rows) ? rows : 0;
+  if (normalizedRows <= 0) return null;
+  const generatedHole = holeColumn === undefined
+    ? Math.floor(Math.random() * COLS) : holeColumn;
+  const normalizedHole = Math.max(0, Math.min(COLS - 1, Math.floor(generatedHole)));
+  return { rows: normalizedRows, holeColumn: normalizedHole };
+}
+
+function enqueueGarbagePacket(queue, rows, holeColumn) {
+  const packet = typeof rows === "object" && rows !== null
+    ? createGarbagePacket(rows.rows, rows.holeColumn)
+    : createGarbagePacket(rows, holeColumn);
+  if (packet) queue.push(packet);
+  return queue;
+}
+
+function totalIncomingGarbage(queue) {
+  return queue.reduce((total, packet) => total + Math.max(0, packet.rows), 0);
+}
+
+function cancelIncomingGarbage(queue, attackRows) {
+  let remainingAttack = Math.max(0, Number.isInteger(attackRows) ? attackRows : 0);
+  let cancelled = 0;
+  const remainingQueue = queue.map(packet => ({ ...packet }));
+  for (const packet of remainingQueue) {
+    if (remainingAttack === 0) break;
+    const cancelledRows = Math.min(packet.rows, remainingAttack);
+    packet.rows -= cancelledRows;
+    remainingAttack -= cancelledRows;
+    cancelled += cancelledRows;
+  }
+  return {
+    queue: remainingQueue.filter(packet => packet.rows > 0),
+    cancelled,
+    remainingAttack,
+  };
+}
+
+function createGarbageRow(holeColumn) {
+  return Array.from({ length: COLS }, (_, x) => x === holeColumn ? 0 : GARBAGE_CELL);
+}
+
+function applyGarbagePackets(state, queue) {
+  let appliedRows = 0;
+  let garbageOverflow = false;
+  for (const packet of queue) {
+    for (let row = 0; row < packet.rows; row++) {
+      if (state.board[0].some(cell => cell !== 0)) garbageOverflow = true;
+      state.board = state.board.slice(1);
+      state.board.push(createGarbageRow(packet.holeColumn));
+      appliedRows++;
+    }
+  }
+  queue.length = 0;
+  return { appliedRows, garbageOverflow };
+}
+
+function resolveVersusLockFor(state, incomingQueue, opponentQueue, { holeColumn } = {}) {
+  const lockResult = resolveLockFor(state);
+  const outcome = {
+    lockResult,
+    rawAttack: 0,
+    cancelled: 0,
+    outgoingAttack: 0,
+    garbageApplied: 0,
+    garbageOverflow: false,
+    terminal: lockResult.terminal,
+  };
+  if (lockResult.terminal) return outcome;
+
+  outcome.rawAttack = calculateAttack(lockResult);
+  const cancellation = cancelIncomingGarbage(incomingQueue, outcome.rawAttack);
+  incomingQueue.splice(0, incomingQueue.length, ...cancellation.queue);
+  outcome.cancelled = cancellation.cancelled;
+  outcome.outgoingAttack = cancellation.remainingAttack;
+  if (outcome.outgoingAttack > 0) enqueueGarbagePacket(opponentQueue, outcome.outgoingAttack, holeColumn);
+
+  const applied = applyGarbagePackets(state, incomingQueue);
+  outcome.garbageApplied = applied.appliedRows;
+  outcome.garbageOverflow = applied.garbageOverflow;
+  if (outcome.garbageOverflow) {
+    state.gameOver = true;
+    outcome.terminal = true;
+    return outcome;
+  }
+
+  advancePieceFor(state);
+  outcome.terminal = state.gameOver;
+  return outcome;
+}
+
+function updateVersusIndicators() {
+  if (!vsIndicatorsElement) return;
+  vsIndicatorsElement.hidden = !vsEngineTestActive;
+  if (!vsEngineTestActive || !attackGarbageState) return;
+  humanIncomingElement.textContent = totalIncomingGarbage(attackGarbageState.humanIncoming);
+  secondIncomingElement.textContent = totalIncomingGarbage(attackGarbageState.secondIncoming);
 }
 
 function clonePlayerStateForSimulation(state) {
@@ -765,6 +883,8 @@ function startDualBoardTest() {
   isQaRun = true;
   dualBoardTestActive = true;
   cpuTestActive = false;
+  vsEngineTestActive = false;
+  attackGarbageState = createAttackGarbageState();
   restart();
   secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
   cpuController = createCpuControllerState();
@@ -791,6 +911,8 @@ function startCpuTest() {
   isQaRun = true;
   dualBoardTestActive = true;
   cpuTestActive = true;
+  vsEngineTestActive = false;
+  attackGarbageState = createAttackGarbageState();
   restart();
   secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
   cpuController = createCpuControllerState({ enabled: true });
@@ -812,15 +934,48 @@ function startCpuTest() {
   draw();
 }
 
+function startVsEngineTest() {
+  selectedStartLevel = 1;
+  isQaRun = true;
+  dualBoardTestActive = true;
+  cpuTestActive = true;
+  vsEngineTestActive = true;
+  attackGarbageState = createAttackGarbageState();
+  humanController = createHumanControllerState();
+  restart();
+  secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
+  cpuController = createCpuControllerState({ enabled: true });
+  dualFrameTime = null;
+  qaOpen = false;
+  qaWasPaused = false;
+  qaOverlay.hidden = true;
+  startScreenOpen = false;
+  startOverlay.hidden = true;
+  startOverlay.inert = false;
+  gameUiElement.inert = false;
+  paused = false;
+  statusElement.textContent = "VS ENGINE TEST";
+  pauseButton.disabled = false;
+  pauseButton.textContent = "一時停止（P）";
+  secondView.statusText = "CPU v0.1 — VS";
+  vsIndicatorsElement.hidden = false;
+  dualBoardTestElement.hidden = false;
+  updatePauseVisual();
+  draw();
+}
+
 function exitDualBoardTest() {
   dualBoardTestActive = false;
   cpuTestActive = false;
+  vsEngineTestActive = false;
   secondaryPlayerState = null;
   cpuController = createCpuControllerState();
+  attackGarbageState = createAttackGarbageState();
   dualFrameTime = null;
   dualBoardTestElement.hidden = true;
   isQaRun = false;
   selectedStartLevel = 1;
+  humanController = createHumanControllerState();
   secondView.statusText = "";
   restart();
 }
@@ -895,6 +1050,13 @@ function loadQaTopOut() {
   updateProgressUI();
   draw();
   closeQa();
+}
+
+function queueQaGarbageToHuman() {
+  if (!vsEngineTestActive || !attackGarbageState) return;
+  enqueueGarbagePacket(attackGarbageState.humanIncoming, 2, 4);
+  qaMessageElement.textContent = "Queued 2 garbage rows for Human.";
+  updateVersusIndicators();
 }
 
 function showSpinFeedback() {
@@ -1334,6 +1496,27 @@ function applyMarathonPolicy(state, result) {
 }
 
 function lockPiece() {
+  if (vsEngineTestActive && attackGarbageState) {
+    const outcome = resolveVersusLockFor(
+      currentPlayerState,
+      attackGarbageState.humanIncoming,
+      attackGarbageState.secondIncoming,
+    );
+    const result = outcome.lockResult;
+    scoreElement.textContent = score;
+    levelElement.textContent = level;
+    if (outcome.terminal) {
+      clearHeldKeys();
+      statusElement.textContent = "VS TEST — TOP OUT";
+      pauseButton.disabled = true;
+    }
+    updateProgressUI();
+    showSpinFeedback();
+    playLockEffects(result.spin, result.lines, result.perfectClear, result.levelChanged);
+    updateVersusIndicators();
+    draw();
+    return result;
+  }
   const result = resolveLockFor(currentPlayerState);
   if (result.lockOut) {
     endGame();
@@ -1369,8 +1552,11 @@ function hardDropPlayer(state) {
   let distance = 0;
   while (movePlayer(state, 0, 1)) distance++;
   state.score += distance * 2;
-  const result = resolveLockFor(state);
-  if (!result.terminal) advancePieceFor(state);
+  const versus = vsEngineTestActive && state === secondaryPlayerState && attackGarbageState;
+  const result = versus
+    ? resolveVersusLockFor(state, attackGarbageState.secondIncoming, attackGarbageState.humanIncoming)
+    : resolveLockFor(state);
+  if (!versus && !result.terminal) advancePieceFor(state);
   return { result, distance };
 }
 
@@ -1447,6 +1633,7 @@ let secondView;
 function draw() {
   renderPlayer(currentPlayerState, marathonView, { completed: marathonComplete });
   if (dualBoardTestActive && secondaryPlayerState) renderPlayer(secondaryPlayerState, secondView);
+  updateVersusIndicators();
 }
 
 function restart() {
@@ -1463,7 +1650,11 @@ function restart() {
   paused = false;
   if (dualBoardTestActive) secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
   cpuController = createCpuControllerState({ enabled: cpuTestActive });
-  if (secondView) secondView.statusText = cpuTestActive ? "CPU v0.1" : "";
+  if (vsEngineTestActive) {
+    attackGarbageState = createAttackGarbageState();
+    humanController = createHumanControllerState();
+  }
+  if (secondView) secondView.statusText = vsEngineTestActive ? "CPU v0.1 — VS" : cpuTestActive ? "CPU v0.1" : "";
   dualFrameTime = null;
   updatePauseVisual();
   levelElement.textContent = level;
@@ -1617,8 +1808,10 @@ document.getElementById("qa-149").addEventListener("click", loadQa149To150);
 document.getElementById("qa-clear").addEventListener("click", clearQaBoard);
 document.getElementById("qa-force-i").addEventListener("click", forceQaI);
 document.getElementById("qa-top-out").addEventListener("click", loadQaTopOut);
+document.getElementById("qa-garbage-human").addEventListener("click", queueQaGarbageToHuman);
 document.getElementById("qa-dual").addEventListener("click", startDualBoardTest);
 document.getElementById("qa-cpu").addEventListener("click", startCpuTest);
+document.getElementById("qa-vs-engine").addEventListener("click", startVsEngineTest);
 document.getElementById("dual-exit").addEventListener("click", exitDualBoardTest);
 qaResetButton.addEventListener("click", () => {
   isQaRun = false;
@@ -1656,6 +1849,10 @@ window.addEventListener("focus", () => {
 function canAdvanceSimulation() {
   return !startScreenOpen && !paused && !settingsOpen && !qaOpen && !focusSuspended
     && !document.hidden && !gameOver && !marathonComplete;
+}
+
+function canAdvanceSharedSimulation() {
+  return !startScreenOpen && !paused && !settingsOpen && !qaOpen && !focusSuspended && !document.hidden;
 }
 
 function prepareHumanController(controller, state, time) {
@@ -1755,12 +1952,16 @@ function advanceSimulation(time, { softDropActive = false } = {}) {
 
 function update(time) {
   const previousFrameTime = dualFrameTime;
+  const sharedSimulationActive = canAdvanceSharedSimulation();
   const humanSimulationActive = canAdvanceSimulation();
   advanceTime(time);
-  if (dualBoardTestActive && secondaryPlayerState && humanSimulationActive && previousFrameTime !== null) {
+  if (dualBoardTestActive && secondaryPlayerState && sharedSimulationActive && previousFrameTime !== null) {
     const elapsed = Math.max(0, time - previousFrameTime);
-    advancePreviewSimulation(secondaryPlayerState, elapsed);
-    if (cpuTestActive) advanceCpuController(cpuController, secondaryPlayerState, elapsed);
+    if ((!vsEngineTestActive && humanSimulationActive)
+      || (vsEngineTestActive && !secondaryPlayerState.gameOver)) {
+      advancePreviewSimulation(secondaryPlayerState, elapsed);
+      if (cpuTestActive) advanceCpuController(cpuController, secondaryPlayerState, elapsed);
+    }
     renderPlayer(secondaryPlayerState, secondView);
   }
   dualFrameTime = time;

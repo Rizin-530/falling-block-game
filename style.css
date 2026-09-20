@@ -101,6 +101,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .dual-board-test { width: min(100%, 880px); margin: 24px auto 0; padding: 16px; border: 1px solid #292b30; border-radius: 8px; background: #121316; }
 .dual-board-test[hidden] { display: none; }
 .dual-player-view > h2 { margin-bottom: 12px; color: #ededee; }
+.vs-indicators { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: -4px 0 12px; color: #c6cad2; font-size: 11px; letter-spacing: 0.04em; }
+.vs-indicators strong { color: #f4d35e; font-variant-numeric: tabular-nums; }
 .dual-player-layout { display: grid; grid-template-columns: minmax(180px, 300px) minmax(140px, 180px); gap: 18px; align-items: start; }
 .dual-board-wrap { position: relative; min-width: 0; }
 #second-board { display: block; width: min(100%, 300px); height: auto; border: 1px solid #454850; background: #08090b; box-shadow: 0 8px 32px #00000040; }
