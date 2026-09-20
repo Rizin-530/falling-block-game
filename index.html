@@ -153,6 +153,7 @@
           <button id="qa-clear" type="button">CLEAR BOARD</button>
           <button id="qa-force-i" type="button">FORCE I</button>
           <button id="qa-top-out" type="button">LOAD TOP OUT TEST</button>
+          <button id="qa-dual" type="button">DUAL BOARD TEST</button>
         </div>
       </section>
       <p id="qa-message" class="qa-message" role="status"></p>
@@ -161,6 +162,20 @@
         <button id="qa-close" type="button">CLOSE</button>
       </div>
     </div>
+  </section>
+  <section id="dual-board-test" class="dual-board-test" aria-label="Dual Board Test" hidden>
+    <div class="dual-player-view">
+      <h2>PLAYER 2</h2>
+      <div class="dual-player-layout">
+        <div class="dual-board-wrap"><canvas id="second-board" width="300" height="600" aria-label="Player 2のゲーム盤"></canvas><p id="second-status" class="dual-status" role="status"></p></div>
+        <div class="dual-player-side">
+          <section class="dual-preview"><h3>HOLD</h3><canvas id="second-hold" width="120" height="80" aria-label="Player 2のHOLD"></canvas></section>
+          <section class="dual-preview"><h3>NEXT</h3><canvas id="second-next" width="120" height="200" aria-label="Player 2のNEXT"></canvas></section>
+          <dl class="dual-stats"><div><dt>SCORE</dt><dd id="second-score">0</dd></div><div><dt>LINES</dt><dd id="second-lines">0</dd></div><div><dt>LEVEL</dt><dd id="second-level">1</dd></div></dl>
+        </div>
+      </div>
+    </div>
+    <button id="dual-exit" type="button">EXIT DUAL TEST</button>
   </section>
 </body>
 </html>

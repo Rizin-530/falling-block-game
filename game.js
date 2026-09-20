@@ -161,9 +161,18 @@ const startDevToolsButton = document.getElementById("start-dev-tools");
 const qaCloseButton = document.getElementById("qa-close");
 const qaResetButton = document.getElementById("qa-reset");
 const qaMessageElement = document.getElementById("qa-message");
+const dualBoardTestElement = document.getElementById("dual-board-test");
+const secondBoardCanvas = document.getElementById("second-board");
+const secondBoardContext = secondBoardCanvas.getContext("2d");
+const secondHoldCanvas = document.getElementById("second-hold");
+const secondNextCanvas = document.getElementById("second-next");
+const secondScoreElement = document.getElementById("second-score");
+const secondLinesElement = document.getElementById("second-lines");
+const secondLevelElement = document.getElementById("second-level");
+const secondStatusElement = document.getElementById("second-status");
 const qaScenarioButtons = [
   document.getElementById("qa-149"), document.getElementById("qa-clear"),
-  document.getElementById("qa-force-i"), document.getElementById("qa-top-out"),
+  document.getElementById("qa-force-i"), document.getElementById("qa-top-out"), document.getElementById("qa-dual"),
 ];
 const CLEAR_EVENT_DURATION = 1200;
 let clearEventTimer = null;
@@ -216,6 +225,9 @@ function createPlayerState({ selectedStartLevel = 1, initialize = true } = {}) {
 }
 
 let currentPlayerState = createPlayerState({ initialize: false });
+let dualBoardTestActive = false;
+let secondaryPlayerState = null;
+let dualFrameTime = null;
 const PLAYER_STATE_FIELDS = [
   "board", "piece", "score", "gameOver", "nextQueue", "heldType", "holdUsed",
   "totalLines", "level", "dropElapsed", "lockElapsed", "lockResets", "bag",
@@ -366,6 +378,7 @@ function openSettings(time = performance.now()) {
   }
   clearHeldKeys();
   lastTime = null;
+  dualFrameTime = null;
   settingsOpen = true;
   updatePauseVisual();
   updateSettingsUI();
@@ -387,6 +400,7 @@ function closeSettings() {
   settingsOpen = false;
   clearHeldKeys();
   lastTime = null;
+  dualFrameTime = null;
   if (!startScreenOpen && !gameOver && !marathonComplete) {
     paused = settingsWasPaused;
     statusElement.textContent = paused ? "一時停止中" : "プレイ中";
@@ -421,6 +435,7 @@ function showStartScreen() {
   gameUiElement.inert = true;
   clearHeldKeys();
   lastTime = null;
+  dualFrameTime = null;
   statusElement.textContent = "開始待ち";
   startButton.focus?.();
 }
@@ -493,6 +508,7 @@ function openQa(time = performance.now()) {
   }
   clearHeldKeys();
   lastTime = null;
+  dualFrameTime = null;
   qaOpen = true;
   updatePauseVisual();
   qaMessageElement.textContent = "";
@@ -514,6 +530,7 @@ function closeQa() {
   qaOpen = false;
   clearHeldKeys();
   lastTime = null;
+  dualFrameTime = null;
   if (!startScreenOpen && !gameOver && !marathonComplete) {
     paused = qaWasPaused;
     statusElement.textContent = paused ? "一時停止中" : "プレイ中";
@@ -529,6 +546,65 @@ function startDebugLevel(selectedLevel) {
   isQaRun = false;
   restart();
   closeQa();
+}
+
+function advancePreviewSimulation(state, elapsed) {
+  if (!state || state.gameOver || elapsed <= 0) return;
+  let remaining = elapsed;
+  while (remaining > 0 && !state.gameOver) {
+    if (isGroundedFor(state)) {
+      const timeUntilLock = Math.max(0, LOCK_DELAY - state.lockElapsed);
+      state.dropElapsed = 0;
+      state.lockElapsed += remaining;
+      if (state.lockElapsed < LOCK_DELAY) break;
+      const result = resolveLockFor(state);
+      if (result.terminal) break;
+      advancePieceFor(state);
+      remaining = Math.max(0, remaining - timeUntilLock);
+      continue;
+    }
+    const gravityInterval = getGravityInterval(state.level);
+    const elapsedToStep = Math.min(remaining, gravityInterval - state.dropElapsed);
+    state.dropElapsed += elapsedToStep;
+    remaining -= elapsedToStep;
+    if (state.dropElapsed >= gravityInterval) {
+      state.dropElapsed = 0;
+      movePlayer(state, 0, 1);
+    }
+  }
+}
+
+function startDualBoardTest() {
+  selectedStartLevel = 1;
+  isQaRun = true;
+  dualBoardTestActive = true;
+  restart();
+  secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
+  dualFrameTime = null;
+  qaOpen = false;
+  qaWasPaused = false;
+  qaOverlay.hidden = true;
+  startScreenOpen = false;
+  startOverlay.hidden = true;
+  startOverlay.inert = false;
+  gameUiElement.inert = false;
+  paused = false;
+  statusElement.textContent = "DUAL BOARD TEST";
+  pauseButton.disabled = false;
+  pauseButton.textContent = "一時停止（P）";
+  dualBoardTestElement.hidden = false;
+  updatePauseVisual();
+  draw();
+}
+
+function exitDualBoardTest() {
+  dualBoardTestActive = false;
+  secondaryPlayerState = null;
+  dualFrameTime = null;
+  dualBoardTestElement.hidden = true;
+  isQaRun = false;
+  selectedStartLevel = 1;
+  restart();
 }
 
 function markQaRun() {
@@ -767,6 +843,7 @@ function togglePause(time = performance.now()) {
   paused = !paused;
   updatePauseVisual();
   clearHeldKeys();
+  dualFrameTime = null;
   statusElement.textContent = paused ? "一時停止中" : "プレイ中";
   pauseButton.textContent = paused ? "再開（P）" : "一時停止（P）";
 }
@@ -781,12 +858,10 @@ function ghostY() {
   return landingYOn(board, piece);
 }
 
-function drawPreview(id, types) {
-  const preview = document.getElementById(id);
-  const ctx = preview.getContext("2d");
+function drawPreviewOn(preview, types, size, targetContext = preview.getContext("2d")) {
+  const ctx = targetContext;
   ctx.clearRect(0, 0, preview.width, preview.height);
   const slotHeight = preview.height / types.length;
-  const size = id === "next" ? 16 : 24;
   types.forEach((type, index) => {
     if (type === null) return;
     const shape = SHAPES[type];
@@ -1069,45 +1144,78 @@ function hardDrop() {
   lockPiece();
 }
 
-function drawCell(x, y, color) {
+function drawCellOn(targetContext, x, y, color) {
   if (y < HIDDEN_ROWS || y >= TOTAL_ROWS) return;
   const visibleY = y - HIDDEN_ROWS;
-  context.fillStyle = COLORS[color];
-  context.fillRect(x * CELL + 1, visibleY * CELL + 1, CELL - 2, CELL - 2);
+  targetContext.fillStyle = COLORS[color];
+  targetContext.fillRect(x * CELL + 1, visibleY * CELL + 1, CELL - 2, CELL - 2);
 }
 
-function draw() {
-  drawPreview("next", nextQueue);
-  drawPreview("hold", [heldType]);
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  context.strokeStyle = "#191c22";
-  context.lineWidth = 1;
+function drawCell(x, y, color) {
+  drawCellOn(context, x, y, color);
+}
+
+function createPlayerView({ boardCanvas, boardContext, holdCanvas, nextCanvas, scoreElement, linesElement, levelElement, showMarathonTarget = false, statusElement = null }) {
+  return {
+    boardCanvas, boardContext, holdCanvas,
+    get holdContext() { return holdCanvas.getContext("2d"); },
+    nextCanvas,
+    get nextContext() { return nextCanvas.getContext("2d"); },
+    scoreElement, linesElement, levelElement, showMarathonTarget, statusElement,
+  };
+}
+
+function renderPlayer(state, view, { completed = false } = {}) {
+  drawPreviewOn(view.nextCanvas, state.nextQueue, 16, view.nextContext);
+  drawPreviewOn(view.holdCanvas, [state.heldType], 24, view.holdContext);
+  const targetContext = view.boardContext;
+  targetContext.clearRect(0, 0, view.boardCanvas.width, view.boardCanvas.height);
+  targetContext.strokeStyle = "#191c22";
+  targetContext.lineWidth = 1;
   for (let x = 0; x <= COLS; x++) {
-    context.beginPath();
-    context.moveTo(x * CELL, 0);
-    context.lineTo(x * CELL, VISIBLE_ROWS * CELL);
-    context.stroke();
+    targetContext.beginPath();
+    targetContext.moveTo(x * CELL, 0);
+    targetContext.lineTo(x * CELL, VISIBLE_ROWS * CELL);
+    targetContext.stroke();
   }
   for (let y = 0; y <= VISIBLE_ROWS; y++) {
-    context.beginPath();
-    context.moveTo(0, y * CELL);
-    context.lineTo(COLS * CELL, y * CELL);
-    context.stroke();
+    targetContext.beginPath();
+    targetContext.moveTo(0, y * CELL);
+    targetContext.lineTo(COLS * CELL, y * CELL);
+    targetContext.stroke();
   }
-  board.forEach((row, y) => row.forEach((color, x) => {
-    if (color) drawCell(x, y, color);
+  state.board.forEach((row, y) => row.forEach((color, x) => {
+    if (color) drawCellOn(targetContext, x, y, color);
   }));
-  if (!gameOver && !marathonComplete) {
-    const landingY = ghostY();
-    context.globalAlpha = 0.25;
-    piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
-      if (cell) drawCell(piece.x + dx, landingY + dy, piece.color);
+  if (state.piece && !state.gameOver && !completed) {
+    const landingY = landingYOn(state.board, state.piece);
+    targetContext.globalAlpha = 0.25;
+    state.piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
+      if (cell) drawCellOn(targetContext, state.piece.x + dx, landingY + dy, state.piece.color);
     }));
-    context.globalAlpha = 1;
-    piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
-      if (cell) drawCell(piece.x + dx, piece.y + dy, piece.color);
+    targetContext.globalAlpha = 1;
+    state.piece.shape.forEach((row, dy) => row.forEach((cell, dx) => {
+      if (cell) drawCellOn(targetContext, state.piece.x + dx, state.piece.y + dy, state.piece.color);
     }));
   }
+  if (view.scoreElement) view.scoreElement.textContent = state.score;
+  if (view.linesElement) view.linesElement.textContent = view.showMarathonTarget
+    ? `${state.totalLines} / ${MARATHON_TARGET_LINES}` : state.totalLines;
+  if (view.levelElement) view.levelElement.textContent = state.level;
+  if (view.statusElement) view.statusElement.textContent = state.gameOver ? "TOP OUT" : "";
+}
+
+function drawPreview(id, types) {
+  const preview = document.getElementById(id);
+  drawPreviewOn(preview, types, id === "next" ? 16 : 24);
+}
+
+let marathonView;
+let secondView;
+
+function draw() {
+  renderPlayer(currentPlayerState, marathonView, { completed: marathonComplete });
+  if (dualBoardTestActive && secondaryPlayerState) renderPlayer(secondaryPlayerState, secondView);
 }
 
 function restart() {
@@ -1122,6 +1230,8 @@ function restart() {
   clearHeldKeys();
   marathonComplete = false;
   paused = false;
+  if (dualBoardTestActive) secondaryPlayerState = createPlayerState({ selectedStartLevel: 1 });
+  dualFrameTime = null;
   updatePauseVisual();
   levelElement.textContent = level;
   pauseButton.disabled = false;
@@ -1262,8 +1372,15 @@ document.getElementById("qa-149").addEventListener("click", loadQa149To150);
 document.getElementById("qa-clear").addEventListener("click", clearQaBoard);
 document.getElementById("qa-force-i").addEventListener("click", forceQaI);
 document.getElementById("qa-top-out").addEventListener("click", loadQaTopOut);
+document.getElementById("qa-dual").addEventListener("click", startDualBoardTest);
+document.getElementById("dual-exit").addEventListener("click", exitDualBoardTest);
 qaResetButton.addEventListener("click", () => {
   isQaRun = false;
+  if (dualBoardTestActive) {
+    exitDualBoardTest();
+    closeQa();
+    return;
+  }
   restart();
   closeQa();
 });
@@ -1276,15 +1393,18 @@ pauseButton.addEventListener("click", event => { enableAudio(); togglePause(even
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) clearHeldKeys();
   lastTime = null;
+  dualFrameTime = null;
 });
 window.addEventListener("blur", () => {
   focusSuspended = true;
   clearHeldKeys();
   lastTime = null;
+  dualFrameTime = null;
 });
 window.addEventListener("focus", () => {
   focusSuspended = false;
   lastTime = null;
+  dualFrameTime = null;
 });
 
 function canAdvanceSimulation() {
@@ -1388,9 +1508,37 @@ function advanceSimulation(time, { softDropActive = false } = {}) {
 }
 
 function update(time) {
+  const previousFrameTime = dualFrameTime;
+  const humanSimulationActive = canAdvanceSimulation();
   advanceTime(time);
+  if (dualBoardTestActive && secondaryPlayerState && humanSimulationActive && previousFrameTime !== null) {
+    advancePreviewSimulation(secondaryPlayerState, Math.max(0, time - previousFrameTime));
+    renderPlayer(secondaryPlayerState, secondView);
+  }
+  dualFrameTime = time;
   requestAnimationFrame(update);
 }
+
+marathonView = createPlayerView({
+  boardCanvas: canvas,
+  boardContext: context,
+  holdCanvas: document.getElementById("hold"),
+  nextCanvas: document.getElementById("next"),
+  scoreElement,
+  linesElement,
+  levelElement,
+  showMarathonTarget: true,
+});
+secondView = createPlayerView({
+  boardCanvas: secondBoardCanvas,
+  boardContext: secondBoardContext,
+  holdCanvas: secondHoldCanvas,
+  nextCanvas: secondNextCanvas,
+  scoreElement: secondScoreElement,
+  linesElement: secondLinesElement,
+  levelElement: secondLevelElement,
+  statusElement: secondStatusElement,
+});
 
 updateSettingsUI();
 restart();

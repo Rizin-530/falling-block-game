@@ -1271,6 +1271,77 @@ controllerSeparationTests(`
 `);
 console.log("PASS: Human Controller state/action mapping, simulation isolation and DAS/ARR/Soft Drop timing separation.");
 
+const dualPlayerTests = createGame();
+dualPlayerTests(`
+  // Dual modeはDEV TOOLSからだけ開始し、Human/Secondを別Stateとして生成する。
+  startDualBoardTest();
+  assert.equal(dualBoardTestActive, true);
+  assert.ok(secondaryPlayerState);
+  assert.notEqual(secondaryPlayerState, currentPlayerState);
+  assert.notEqual(secondaryPlayerState.board, currentPlayerState.board);
+  assert.notEqual(secondaryPlayerState.piece, currentPlayerState.piece);
+  assert.notEqual(secondaryPlayerState.nextQueue, currentPlayerState.nextQueue);
+  assert.equal(selectedStartLevel, 1);
+  assert.equal(isQaRun, true);
+
+  // Humanの状態変更はSecondへ漏れず、Secondの変更もHumanへ漏れない。
+  const secondSnapshot = JSON.stringify({ board:secondaryPlayerState.board, piece:secondaryPlayerState.piece,
+    nextQueue:secondaryPlayerState.nextQueue, heldType:secondaryPlayerState.heldType, score:secondaryPlayerState.score,
+    totalLines:secondaryPlayerState.totalLines, level:secondaryPlayerState.level, b2b:secondaryPlayerState.backToBackActive,
+    combo:secondaryPlayerState.comboCount, stats:secondaryPlayerState.runStats });
+  applyPlayerAction(PLAYER_ACTIONS.MOVE_LEFT); applyPlayerAction(PLAYER_ACTIONS.ROTATE_CW);
+  assert.equal(JSON.stringify({ board:secondaryPlayerState.board, piece:secondaryPlayerState.piece,
+    nextQueue:secondaryPlayerState.nextQueue, heldType:secondaryPlayerState.heldType, score:secondaryPlayerState.score,
+    totalLines:secondaryPlayerState.totalLines, level:secondaryPlayerState.level, b2b:secondaryPlayerState.backToBackActive,
+    combo:secondaryPlayerState.comboCount, stats:secondaryPlayerState.runStats }), secondSnapshot);
+  const humanAfterActionSnapshot = JSON.stringify({ board:currentPlayerState.board, piece:currentPlayerState.piece,
+    nextQueue:currentPlayerState.nextQueue, heldType:currentPlayerState.heldType, score:currentPlayerState.score,
+    totalLines:currentPlayerState.totalLines, level:currentPlayerState.level, b2b:currentPlayerState.backToBackActive,
+    combo:currentPlayerState.comboCount, stats:currentPlayerState.runStats });
+  advancePreviewSimulation(secondaryPlayerState, getGravityInterval(1));
+  assert.equal(JSON.stringify({ board:currentPlayerState.board, piece:currentPlayerState.piece,
+    nextQueue:currentPlayerState.nextQueue, heldType:currentPlayerState.heldType, score:currentPlayerState.score,
+    totalLines:currentPlayerState.totalLines, level:currentPlayerState.level, b2b:currentPlayerState.backToBackActive,
+    combo:currentPlayerState.comboCount, stats:currentPlayerState.runStats }), humanAfterActionSnapshot);
+  assert.equal(highScore, 0);
+
+  // 同じRendererでState/Viewを指定して描画しても、Stateは変化しない。
+  const renderBefore = JSON.stringify(secondaryPlayerState);
+  renderPlayer(secondaryPlayerState, secondView);
+  assert.equal(JSON.stringify(secondaryPlayerState), renderBefore);
+  assert.equal(String(secondScoreElement.textContent), String(secondaryPlayerState.score));
+  assert.equal(String(secondLinesElement.textContent), String(secondaryPlayerState.totalLines));
+  assert.equal(String(secondLevelElement.textContent), String(secondaryPlayerState.level));
+
+  // Secondは独自のGravity→Lock→Spawn cycleを持つが、Humanのcoreへは到達しない。
+  secondaryPlayerState.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
+  secondaryPlayerState.piece = { shape:[[1]], rotation:0, x:4, y:TOTAL_ROWS - 1, color:1 };
+  secondaryPlayerState.lockElapsed = LOCK_DELAY - 1;
+  const secondLockedPiece = secondaryPlayerState.piece;
+  advancePreviewSimulation(secondaryPlayerState, 1);
+  assert.notEqual(secondaryPlayerState.piece, secondLockedPiece);
+  assert.equal(secondaryPlayerState.board[TOTAL_ROWS - 1][4], 1);
+  assert.equal(secondaryPlayerState.score, 0);
+
+  // Secondのlock後は自分のQueue/Stateだけを進め、Marathon/Results/High Scoreへ到達しない。
+  secondaryPlayerState.totalLines = MARATHON_TARGET_LINES;
+  const secondAfterTarget = secondaryPlayerState.totalLines;
+  const humanCompleteBefore = marathonComplete;
+  const humanResultsBefore = resultsElement.hidden;
+  advancePreviewSimulation(secondaryPlayerState, 1);
+  assert.equal(secondaryPlayerState.totalLines, secondAfterTarget);
+  assert.equal(marathonComplete, humanCompleteBefore);
+  assert.equal(resultsElement.hidden, humanResultsBefore);
+  assert.equal(highScore, 0);
+
+  exitDualBoardTest();
+  assert.equal(dualBoardTestActive, false);
+  assert.equal(secondaryPlayerState, null);
+  assert.equal(isQaRun, false);
+  assert.equal(resultsElement.hidden, true);
+`);
+console.log("PASS: dual PlayerState independence, state-aware preview simulation, renderer purity/isolation and Marathon/High Score isolation.");
+
 // 別々のVMが同じ保存領域を使い、他画面の更新を知らない状態を再現する。
 const highScoreKey = "falling-block-high-score";
 for (const [initial, points, expected] of [[undefined,100,100],["100",500,500],["500",100,500]]) {

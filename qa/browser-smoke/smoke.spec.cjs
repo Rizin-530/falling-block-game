@@ -38,6 +38,7 @@ async function startGame(page) {
   await page.locator("#board").click({ position: { x: 150, y: 300 } });
   await expect(page.locator("#hold")).toBeVisible();
   await expect(page.locator("#next")).toBeVisible();
+  await expect(page.locator("#dual-board-test")).toBeHidden();
   await expect(page.locator("#score")).toHaveText("0");
   await expect(page.locator("#level")).toHaveText("1");
   await expect(page.locator("#lines")).toHaveText("0 / 150");
@@ -118,5 +119,40 @@ test("DEV TOOLS LOAD 149 to 150 completes Marathon and shows final Results", asy
   await expect(page.locator("#results-score")).toHaveText(/^[1-9][0-9]*$/);
   await expect(page.locator("#results-perfect-clears")).toHaveText(/^\d+$/);
   await expect(page.locator("#pause")).toBeDisabled();
+  await assertNoRuntimeIssues(issues);
+});
+
+test("DEV TOOLS DUAL BOARD TEST renders an isolated second player view", async ({ page }) => {
+  const issues = captureRuntimeIssues(page);
+  await startGame(page);
+  await page.locator("#open-dev-tools").click();
+  await expect(page.locator("#qa-overlay")).toBeVisible();
+  await page.locator("#qa-dual").click();
+  await expect(page.locator("#qa-overlay")).toBeHidden();
+  await expect(page.locator("#dual-board-test")).toBeVisible();
+  await expect(page.locator("#board")).toBeVisible();
+  await expect(page.locator("#second-board")).toBeVisible();
+
+  const boardBoxes = await Promise.all([page.locator("#board").boundingBox(), page.locator("#second-board").boundingBox()]);
+  expect(boardBoxes[0]).not.toBeNull();
+  expect(boardBoxes[1]).not.toBeNull();
+  expect(boardBoxes[0].x + boardBoxes[0].width <= boardBoxes[1].x || boardBoxes[1].x + boardBoxes[1].width <= boardBoxes[0].x
+    || boardBoxes[0].y + boardBoxes[0].height <= boardBoxes[1].y || boardBoxes[1].y + boardBoxes[1].height <= boardBoxes[0].y).toBe(true);
+  expect(await canvasHasPixels(page.locator("#board"))).toBe(true);
+  expect(await canvasHasPixels(page.locator("#second-board"))).toBe(true);
+
+  await page.locator("#board").click({ position: { x: 150, y: 300 } });
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press(" ");
+  await expect(page.locator("#second-board")).toBeVisible();
+  expect(await canvasHasPixels(page.locator("#second-board"))).toBe(true);
+
+  await page.keyboard.press("p");
+  await expect(page.locator("#pause-visual")).toBeVisible();
+  await page.keyboard.press("p");
+  await expect(page.locator("#pause-visual")).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await expect(page.locator("#second-board")).toBeVisible();
   await assertNoRuntimeIssues(issues);
 });
