@@ -377,6 +377,13 @@ function updateVsFixtureVisibility() {
   });
 }
 
+// VS用QA fixtureは、QAのVS ENGINE TEST中だけ実行を許可する。
+// 公開VSや他のQAモードからは、DOM経由で呼ばれても状態を変更しない。
+function canUseVsQaFixtures() {
+  return Boolean(isQaRun && vsEngineTestActive && !publicVsActive
+    && vsMatchState?.active && !vsMatchState.finished);
+}
+
 function updatePauseVisual() {
   const visible = paused && !settingsOpen && !qaOpen && !gameOver && !marathonComplete && !startScreenOpen;
   pauseVisualElement.hidden = !visible;
@@ -1355,14 +1362,14 @@ function loadQaTopOut() {
 }
 
 function queueQaGarbageToHuman() {
-  if (!vsEngineTestActive || !attackGarbageState) return;
+  if (!canUseVsQaFixtures() || !attackGarbageState) return;
   enqueueGarbagePacket(attackGarbageState.humanIncoming, 2, 4);
   qaMessageElement.textContent = "Queued 2 garbage rows for Human.";
   updateVersusIndicators();
 }
 
 function forceVsTopOut(state) {
-  if (!vsEngineTestActive || !state) return;
+  if (!canUseVsQaFixtures() || !state) return;
   state.board[SPAWN_Y + 1].fill(7);
   spawnPieceFor(state, 0);
   settleVsMatchOutcome();
@@ -1370,19 +1377,19 @@ function forceVsTopOut(state) {
 }
 
 function forceVsHumanTopOut() {
-  if (!vsEngineTestActive) return;
+  if (!canUseVsQaFixtures()) return;
   forceVsTopOut(currentPlayerState);
   closeQa();
 }
 
 function forceVsCpuTopOut() {
-  if (!vsEngineTestActive) return;
+  if (!canUseVsQaFixtures()) return;
   forceVsTopOut(secondaryPlayerState);
   closeQa();
 }
 
 function forceVsDoubleTopOut() {
-  if (!vsEngineTestActive || !secondaryPlayerState) return;
+  if (!canUseVsQaFixtures() || !secondaryPlayerState) return;
   currentPlayerState.board[SPAWN_Y + 1].fill(7);
   secondaryPlayerState.board[SPAWN_Y + 1].fill(7);
   spawnPieceFor(currentPlayerState, 0);
@@ -1393,7 +1400,7 @@ function forceVsDoubleTopOut() {
 }
 
 function setupVsTransactionalLock() {
-  if (!vsEngineTestActive || !secondaryPlayerState) return;
+  if (!canUseVsQaFixtures() || !secondaryPlayerState) return;
   const setup = (state, lines) => {
     state.board = Array.from({ length: TOTAL_ROWS }, () => Array(COLS).fill(0));
     state.board[0][0] = 7;

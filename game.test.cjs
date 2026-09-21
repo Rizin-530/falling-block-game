@@ -4227,3 +4227,92 @@ publicVsTests(`
   assert.equal(dualBoardTestActive, false);
 `);
 console.log("PASS: Phase 8B public VS CPU entry, QA isolation, Marathon/High Score separation, rematch and exit lifecycle.");
+
+const vsQaFixtureIsolationTests = createGame();
+vsQaFixtureIsolationTests(`
+  // VS用fixtureは、QAのVS ENGINE TEST以外では許可しない。
+  assert.equal(canUseVsQaFixtures(), false);
+  startGame();
+  assert.equal(canUseVsQaFixtures(), false);
+  const startScreenSnapshot = JSON.stringify({ board, incoming: attackGarbageState, outcome: vsMatchState.outcome });
+  queueQaGarbageToHuman(); forceVsHumanTopOut(); forceVsCpuTopOut(); forceVsDoubleTopOut(); setupVsTransactionalLock();
+  assert.equal(JSON.stringify({ board, incoming: attackGarbageState, outcome: vsMatchState.outcome }), startScreenSnapshot);
+
+  startDualBoardTest();
+  assert.equal(canUseVsQaFixtures(), false);
+  const dualSnapshot = JSON.stringify({ board, second: secondaryPlayerState.board, incoming: attackGarbageState, outcome: vsMatchState.outcome });
+  queueQaGarbageToHuman(); forceVsHumanTopOut(); forceVsCpuTopOut(); forceVsDoubleTopOut(); setupVsTransactionalLock();
+  assert.equal(JSON.stringify({ board, second: secondaryPlayerState.board, incoming: attackGarbageState, outcome: vsMatchState.outcome }), dualSnapshot);
+
+  startCpuTest();
+  assert.equal(canUseVsQaFixtures(), false);
+  const cpuSnapshot = JSON.stringify({ board, second: secondaryPlayerState.board, incoming: attackGarbageState, outcome: vsMatchState.outcome });
+  queueQaGarbageToHuman(); forceVsHumanTopOut(); forceVsCpuTopOut(); forceVsDoubleTopOut(); setupVsTransactionalLock();
+  assert.equal(JSON.stringify({ board, second: secondaryPlayerState.board, incoming: attackGarbageState, outcome: vsMatchState.outcome }), cpuSnapshot);
+`);
+
+const publicVsFixtureIsolationTests = createGame();
+publicVsFixtureIsolationTests(`
+  startPublicVsCpu();
+  assert.equal(canUseVsQaFixtures(), false);
+  const snapshot = () => JSON.stringify({
+    humanBoard: currentPlayerState.board,
+    cpuBoard: secondaryPlayerState.board,
+    humanIncoming: attackGarbageState.humanIncoming,
+    cpuIncoming: attackGarbageState.secondIncoming,
+    humanGameOver: currentPlayerState.gameOver,
+    cpuGameOver: secondaryPlayerState.gameOver,
+    pendingLocks: vsMatchState.pendingLocks,
+    outcome: vsMatchState.outcome,
+    finished: vsMatchState.finished,
+  });
+  const before = snapshot();
+  queueQaGarbageToHuman(); forceVsHumanTopOut(); forceVsCpuTopOut(); forceVsDoubleTopOut(); setupVsTransactionalLock();
+  assert.equal(snapshot(), before);
+  assert.equal(vsResultsElement.hidden, true);
+`);
+
+const vsEngineFixtureTests = createGame();
+vsEngineFixtureTests(`
+  startVsEngineTest();
+  assert.equal(canUseVsQaFixtures(), true);
+  queueQaGarbageToHuman();
+  assert.equal(totalIncomingGarbage(attackGarbageState.humanIncoming), 2);
+`);
+
+const vsEngineHumanTopOutTests = createGame();
+vsEngineHumanTopOutTests(`
+  startVsEngineTest();
+  forceVsHumanTopOut();
+  assert.equal(vsMatchState.finished, true);
+  assert.equal(vsMatchState.outcome, VS_OUTCOMES.CPU_WIN);
+  assert.equal(vsResultsElement.hidden, false);
+`);
+
+const vsEngineCpuTopOutTests = createGame();
+vsEngineCpuTopOutTests(`
+  startVsEngineTest();
+  forceVsCpuTopOut();
+  assert.equal(vsMatchState.finished, true);
+  assert.equal(vsMatchState.outcome, VS_OUTCOMES.HUMAN_WIN);
+`);
+
+const vsEngineDrawTests = createGame();
+vsEngineDrawTests(`
+  startVsEngineTest();
+  forceVsDoubleTopOut();
+  assert.equal(vsMatchState.finished, true);
+  assert.equal(vsMatchState.outcome, VS_OUTCOMES.DRAW);
+`);
+
+const vsEngineTransactionTests = createGame();
+vsEngineTransactionTests(`
+  startVsEngineTest();
+  setupVsTransactionalLock();
+  assert.ok(vsMatchState.pendingLocks.human);
+  assert.ok(vsMatchState.pendingLocks.cpu);
+  flushVsSettlementWindow();
+  assert.equal(totalIncomingGarbage(attackGarbageState.secondIncoming), 4);
+  assert.equal(vsMatchState.finished, false);
+`);
+console.log("PASS: VS QA fixture positive permission, Public/Marathon/DUAL/CPU no-op isolation and VS ENGINE fixture regression.");

@@ -345,3 +345,28 @@ test("public VS CPU starts from Start Screen without QA or Marathon mode", async
   await expect(page.locator("#qa-run")).toBeHidden();
   await assertNoRuntimeIssues(issues);
 });
+
+test("public VS ignores hidden VS QA fixture actions", async ({ page }) => {
+  const issues = captureRuntimeIssues(page);
+  await page.goto("/");
+  await page.locator("#start-vs").click();
+  await expect(page.locator("#status")).toHaveText("VS CPU");
+  await expect(page.locator("#qa-overlay")).toBeHidden();
+  await expect(page.locator("#qa-force-human-top-out")).toBeHidden();
+  await expect(page.locator("#qa-force-cpu-top-out")).toBeHidden();
+  await expect(page.locator("#qa-force-double-top-out")).toBeHidden();
+  await expect(page.locator("#qa-transactional-lock")).toBeHidden();
+
+  // Auditで再現したHTMLElement.click()経由でもPublic VSの状態を変更しない。
+  for (const id of [
+    "#qa-garbage-human", "#qa-force-human-top-out", "#qa-force-cpu-top-out",
+    "#qa-force-double-top-out", "#qa-transactional-lock",
+  ]) {
+    await page.locator(id).evaluate(element => element.click());
+  }
+  await expect(page.locator("#human-incoming")).toHaveText("0");
+  await expect(page.locator("#second-incoming")).toHaveText("0");
+  await expect(page.locator("#vs-results")).toBeHidden();
+  await expect(page.locator("#status")).toHaveText("VS CPU");
+  await assertNoRuntimeIssues(issues);
+});
