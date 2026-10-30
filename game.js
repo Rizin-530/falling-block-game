@@ -136,7 +136,7 @@ let highScore = +(localStorage.getItem("brilliant-high") || 0);
 let S = null;         // ゲーム状態
 let particles = [], floats = [], clearingRows = null, clearAnimUntil = 0;
 let lastTime = 0, dropAcc = 0, lockAcc = 0, lockResets = 0, grounded = false;
-let lastAction = null, lastKick = -1, holdUsed = false, paused = false, running = false;
+let lastAction = null, lastKick = -1, holdUsed = false, paused = false, running = false, countingDown = false;
 let endless = false, startAt = 0, playMs = 0, rafId = null;
 const keys = {left: false, right: false, down: false};
 let dasAcc = 0, arrAcc = 0, activeDir = 0, dasCharged = false;
@@ -479,7 +479,7 @@ function frame(t) {
   rafId = requestAnimationFrame(frame);
   const dt = Math.min(50, t - (lastTime || t)); lastTime = t;
   drawStars(t);
-  if (!paused && S && !S.over && !clearingRows) {
+  if (!paused && !countingDown && S && !S.over && !clearingRows) {
     playMs += dt;
     /* DAS / ARR */
     const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
@@ -530,8 +530,8 @@ document.addEventListener("keydown", e => {
   if (e.code === "KeyM") { settings.sfx = !settings.sfx; saveSettings(); syncSettingsUi(); return; }
   if (!running || !S) { if (e.code === "KeyR" || e.code === "Enter") startGame(); return; }
   if (e.code === "KeyR") { startGame(); return; }
-  if (e.code === "KeyP" || e.code === "Escape") { togglePause(); return; }
-  if (paused || S.over || clearingRows || e.repeat) return;
+  if (e.code === "KeyP" || e.code === "Escape") { if (!countingDown) togglePause(); return; }
+  if (paused || countingDown || S.over || clearingRows || e.repeat) return;
   switch (e.code) {
     case "ArrowLeft": if (!keys.left) startDirection("left", -1); break;
     case "ArrowRight": if (!keys.right) startDirection("right", 1); break;
@@ -553,7 +553,7 @@ document.addEventListener("blur", () => { keys.left = keys.right = keys.down = f
 /* タッチボタン */
 document.querySelectorAll(".touch-pad button").forEach(btn => {
   const act = btn.dataset.act;
-  const press = e => { e.preventDefault(); if (!running || paused || !S || S.over) return;
+  const press = e => { e.preventDefault(); if (!running || paused || countingDown || !S || S.over) return;
     if (act === "left") { if (tryMove(-1, 0)) sfx.move(); }
     if (act === "right") { if (tryMove(1, 0)) sfx.move(); }
     if (act === "down") { if (tryMove(0, 1)) S.score += 1; }
@@ -570,6 +570,7 @@ function startGame(keepEndless = false) {
   endless = keepEndless; holdUsed = false; paused = false; playMs = 0; dropAcc = 0; lockAcc = 0;
   particles = []; floats = []; clearingRows = null;
   $("start-overlay").hidden = true; $("results").hidden = true; $("pause-visual").hidden = true;
+  $("pause").textContent = "一時停止（P）";
   if (!spawn(S)) return gameOver();
   running = true; lastTime = 0;
   drawPreview(holdCv, null); drawNext(); updateHud();
@@ -578,11 +579,11 @@ function startGame(keepEndless = false) {
   countdown();
 }
 function countdown() {
-  const el = $("countdown"); const wasRunning = running;
-  paused = true; el.hidden = false;
+  const el = $("countdown");
+  countingDown = true; el.hidden = false;
   const seq = ["3", "2", "1", "GO!"]; let i = 0;
   const step = () => {
-    if (i >= seq.length) { el.hidden = true; paused = false; return; }
+    if (i >= seq.length) { el.hidden = true; countingDown = false; return; }
     el.textContent = seq[i];
     el.classList.remove("tick"); void el.offsetWidth; el.classList.add("tick");
     if (seq[i] === "GO!") sfx.go(); else sfx.count();

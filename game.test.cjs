@@ -70,6 +70,14 @@ test("スコア: 公式倍率・B2B・コンボ・PC", () => {
   assert.equal(G.scoreClear({...base, lines: 4, level: 2}).points, 1600);
 });
 
+test("CSS: [hidden] が display:flex 等に勝つ回帰防止(PAUSED/GO!残留バグ)", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const css = fs.readFileSync(path.join(__dirname, "style.css"), "utf8");
+  assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important/);
+  const js = fs.readFileSync(path.join(__dirname, "game.js"), "utf8");
+  assert.match(js, /countingDown/); /* カウントダウンはポーズと別フラグで管理 */
+});
+
 test("重力テーブル: レベルが上がると速くなる", () => {
   let prev = Infinity;
   for (let lv = 1; lv <= 20; lv++) { const g = G.gravityMs(lv); assert.ok(g < prev || lv === 1); prev = g; }

@@ -4,6 +4,7 @@
   --cyan:#37e6ff; --purple:#c05cff;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;padding:0}
 body{
   min-height:100vh; color:var(--text); overflow-x:hidden;
