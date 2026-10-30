@@ -81,6 +81,14 @@ test("出現位置: 全ピースが出現した瞬間に全体が見える", () 
   assert.equal(G.spawnY("T"), 2);
 });
 
+test("盤面の内側グローは視認性を邪魔しない弱さ(紫ハイズ回帰防止)", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const css = fs.readFileSync(path.join(__dirname, "style.css"), "utf8");
+  const m = css.match(/\.board-stage::before\{[^}]*box-shadow:([^;]+);/);
+  assert.ok(m, "::before glow exists");
+  assert.ok(!/110px|90px|48px/.test(m[1]), "大きな広がりの内側シャドウは禁止: " + m[1]);
+});
+
 test("VEGAS演出: フィーバー/花火/コイン/レーザーの実装が存在する", () => {
   const fs = require("node:fs"), path = require("node:path");
   const js = fs.readFileSync(path.join(__dirname, "game.js"), "utf8");
