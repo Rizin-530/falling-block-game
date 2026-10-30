@@ -33,6 +33,13 @@ Vanilla HTML / CSS / JavaScriptのみ、ビルド不要です。
 - オーロラ+星空の背景アニメーション、ガラス質パネル
 - スコアはブラウザに保存されるハイスコア
 
+### VEGAS MODE(v2.1.0、既定ON・設定でOFF可)
+
+- **FEVER**: ライン消去でゲージが溜まり、満タンで15秒のFEVER TIME(盤面が色相シフト発光)
+- **花火**(TETRIS / T-SPIN / PERFECT CLEAR / レベルアップ)、**コイン噴水+ジャックポット音**(PERFECT CLEAR / B2B TETRIS)
+- 消去ラインの**レーザースイープ**、ハードドロップの**衝撃波リング**、画面**フラッシュ+ズームパンチ+ヒットストップ**
+- 背景のスポットライトビーム、ロゴのネオンフリッカー、落下ピースの残像、盤内を漂うキラキラ
+
 ## 操作方法(一般的な標準キーマップ)
 
 | 操作 | キー |
@@ -89,4 +96,4 @@ HTML / CSS / Vanilla JavaScript(Canvas + Web Audio API)。外部ライブラリ�
 
 ## Version
 
-v2.0.0 — Brilliant Remake
+v2.1.0 — VEGAS MODE

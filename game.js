@@ -523,6 +523,7 @@ function lockPiece() {
     S.board[y][x] = p.type;
   }
   sfx.lock();
+  if (vegasOn()) { const c = cellsOf(p.type, p.state, p.x, p.y)[0]; if (c) burst(c[0] * CELL + 15, (Math.max(HIDDEN, c[1]) - HIDDEN) * CELL + 15, p.type, 5, 1.4); }
   const tspin = detectTSpin(S.board, p, lastAction, lastKick);
   const full = [];
   for (let y = 0; y < ROWS; y++) if (S.board[y].every(c => c)) full.push(y);
@@ -547,14 +548,14 @@ function lockPiece() {
     laserSweep(full);
     addFever(lines * 14 + (res.difficult ? 20 : 0) + Math.max(0, S.combo) * 3);
     if (boardAfterEmpty) { showBanner("PERFECT CLEAR!", res.label, true); sfx.pc(); sfx.jackpot(); flashFx("#ffd76a"); punchFx(); hitStopUntil = performance.now() + 150;
-      fireworks(80, 220, 52); fireworks(220, 220, 52); fireworks(150, 380, 60); coinFountain(150, 430, 42);
+      fireworks(80, 220, 72); fireworks(220, 220, 72); fireworks(150, 380, 84); coinFountain(150, 430, 42);
       floatText(150, 240, "+" + res.points.toLocaleString(), "#ffffff", 30); }
     else if (lines === 4) { showBanner(wasB2B ? "B2B TETRIS!" : "TETRIS!", wasB2B ? "✦ BRILLIANT ✦" : "", true); sfx.tetris(); shake(); punchFx(); flashFx("#ffffff"); hitStopUntil = performance.now() + 95;
-      fireworks(150, 300, 56); ringFx(150, 300, "#ffd76a"); if (wasB2B) coinFountain(150, 380, 26);
+      fireworks(150, 300, 88); fireworks(60, 180, 40); fireworks(240, 180, 40); ringFx(150, 300, "#ffd76a"); if (wasB2B) coinFountain(150, 380, 26);
       floatText(150, 260, "+" + res.points.toLocaleString(), "#ffd76a", 28); }
     else if (tspin) { showBanner(res.label + "!", wasB2B && res.difficult ? "BACK-TO-BACK" : "", false); sfx.tspin(); if (lines >= 2) fireworks(150, 320, 36);
       floatText(150, 260, "+" + res.points.toLocaleString(), "#e0aaff", 24); }
-    else { sfx.clear(lines); floatText(150, 260, "+" + res.points.toLocaleString(), "#a5f7ff", 19); }
+    else { sfx.clear(lines); if (lines >= 2) { flashFx(lines === 3 ? "#ffe9a8" : "#bfe9ff"); ringFx(150, (full[0] - HIDDEN) * CELL + 15, "#8ae9ff"); } floatText(150, 260, "+" + res.points.toLocaleString(), "#a5f7ff", 19); }
     if (S.combo >= 1) floatText(150, 300, "COMBO " + S.combo, "#ff7ad9", 17);
     setTimeout(() => {
       S.board = S.board.filter((_, ry) => !full.includes(ry));
@@ -592,6 +593,14 @@ function frame(t) {
   if (!paused && !countingDown && S && !S.over && !clearingRows) {
     playMs += dt;
     updateFever(dt);
+    /* 盤内を漂うキラキラ(アンビエント) */
+    if (vegasOn()) {
+      if (Math.random() < dt / (isFever() ? 40 : 130)) {
+        const cols = ["#ffd76a", "#ff9de2", "#8ae9ff", "#ffffff"];
+        particles.push({x: Math.random() * 296 + 2, y: 596, vx: (Math.random() - 0.5) * 0.3, vy: -0.5 - Math.random() * 0.9,
+          life: 1, size: 1.4 + Math.random() * 2, color: cols[Math.floor(Math.random() * cols.length)], kind: "spark", rot: 0, vr: 0, grav: -0.006});
+      }
+    }
     if (vegasOn() && S.piece && performance.now() >= hitStopUntil) {
       trailAcc += dt;
       if (trailAcc > 46 && (keys.down || isFever())) {
