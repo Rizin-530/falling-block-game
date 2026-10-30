@@ -104,4 +104,4 @@ HTML / CSS / Vanilla JavaScript(Canvas + Web Audio API)。外部ライブラリ�
 
 ## Version
 
-v2.3.0 — VEGAS MAX
+v2.4.0 — Effects cranked up（既存エフェクト全般を増強：粒子・花火・コインの量と大きさ、レーザー/リング/フラッシュ/シェイク/ヒットストップの強さ、バナー特大化、FEVER突入加速、効果音の厚み）
