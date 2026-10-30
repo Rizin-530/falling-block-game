@@ -44,9 +44,12 @@
       </aside>
 
       <section class="play-area" aria-label="ゲーム盤面">
+        <div class="board-frame">
         <div class="board-stage" id="board-stage">
           <canvas id="board" width="300" height="600" aria-label="10列20行のゲーム盤"></canvas>
           <canvas id="fx" width="300" height="600" aria-hidden="true"></canvas>
+          <div id="fever-bar" aria-hidden="true"><span id="fever-fill"></span><em>FEVER</em></div>
+          <div id="flash" aria-hidden="true"></div>
           <div id="banner" class="banner" aria-hidden="true"></div>
           <div id="countdown" class="countdown" aria-hidden="true" hidden></div>
           <div id="pause-visual" class="pause-visual" aria-hidden="true" hidden>PAUSED</div>
@@ -81,6 +84,7 @@
               <button id="continue-endless" class="btn-ghost" type="button" hidden>そのまま続ける（エンドレス）</button>
             </div>
           </section>
+        </div>
         </div>
         <p id="status" role="status">STARTを押してね</p>
       </section>
@@ -138,6 +142,7 @@
       </div>
       <label class="setting-toggle"><span>VISUAL EFFECTS（演出）</span><input id="setting-effects" type="checkbox" checked></label>
       <label class="setting-toggle"><span>SCREEN SHAKE（画面シェイク）</span><input id="setting-shake" type="checkbox" checked></label>
+      <label class="setting-toggle"><span>VEGAS MODE（ド派手演出MAX）</span><input id="setting-vegas" type="checkbox" checked></label>
       <div class="modal-actions">
         <button id="reset-settings" type="button">RESET</button>
         <button id="close-settings" class="btn-gold" type="button">CLOSE</button>

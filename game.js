@@ -137,12 +137,15 @@ const $ = id => document.getElementById(id);
 const boardCv = $("board"), fxCv = $("fx"), holdCv = $("hold"), nextCv = $("next");
 const bctx = boardCv.getContext("2d"), fctx = fxCv.getContext("2d");
 const CELL = 30;
-const settings = Object.assign({das: 150, arr: 30, sfx: true, volume: 0.8, effects: true, shake: true},
+const settings = Object.assign({das: 150, arr: 30, sfx: true, volume: 0.8, effects: true, shake: true, vegas: true},
   JSON.parse(localStorage.getItem("brilliant-settings") || "{}"));
 let highScore = +(localStorage.getItem("brilliant-high") || 0);
 
 let S = null;         // ゲーム状態
-let particles = [], floats = [], clearingRows = null, clearAnimUntil = 0;
+let particles = [], floats = [], beams = [], rings = [], trails = [], clearingRows = null, clearAnimUntil = 0;
+let fever = 0, feverUntil = 0, hitStopUntil = 0, trailAcc = 0;
+const vegasOn = () => settings.effects && settings.vegas;
+const isFever = () => performance.now() < feverUntil;
 let lastTime = 0, dropAcc = 0, lockAcc = 0, lockResets = 0, grounded = false;
 let lastAction = null, lastKick = -1, holdUsed = false, paused = false, running = false, countingDown = false;
 let endless = false, startAt = 0, playMs = 0, rafId = null;
@@ -177,7 +180,10 @@ const sfx = {
   pc: () => [784, 988, 1175, 1568, 2093].forEach((f, i) => tone(f, 0.18, "sine", 0.16, i * 0.07)),
   over: () => [440, 349, 262, 196].forEach((f, i) => tone(f, 0.25, "sawtooth", 0.1, i * 0.16)),
   count: () => tone(440, 0.08, "square", 0.1),
-  go: () => tone(880, 0.3, "square", 0.14)
+  go: () => tone(880, 0.3, "square", 0.14),
+  laser: () => tone(1400, 0.2, "sawtooth", 0.07, 0, -1150),
+  fever: () => [440, 554, 659, 880, 1109, 1319, 1760].forEach((f, i) => tone(f, 0.13, "square", 0.11, i * 0.055)),
+  jackpot: () => { for (let i = 0; i < 14; i++) tone(1800 + Math.random() * 1600, 0.09, "sine", 0.1, i * 0.045); [1047, 1319, 1568, 2093].forEach((f, i) => tone(f, 0.2, "triangle", 0.13, 0.1 + i * 0.07)); }
 };
 
 /* ---------- 状態生成 ---------- */
@@ -280,13 +286,67 @@ function drawNext() {
 }
 
 /* ---------- エフェクト ---------- */
-function burst(x, y, type, n = 10, power = 3) {
+function burst(x, y, type, n = 10, power = 3, kind = "spark") {
   if (!settings.effects) return;
   const [, mid] = COLORS[type] || ["#fff", "#ffd76a"];
   for (let i = 0; i < n; i++) particles.push({
     x, y, vx: (Math.random() - 0.5) * power * 2, vy: -Math.random() * power - 1,
-    life: 1, size: 2 + Math.random() * 3.5, color: Math.random() < 0.3 ? "#ffffff" : mid
+    life: 1, size: 2 + Math.random() * 3.5, color: Math.random() < 0.3 ? "#ffffff" : mid,
+    kind, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3
   });
+  if (particles.length > 520) particles.splice(0, particles.length - 520);
+}
+/* ===== VEGAS演出: 花火・コイン・レーザー・衝撃波・残像 ===== */
+function fireworks(x, y, n = 46) {
+  if (!vegasOn()) return;
+  const palette = ["#ffd76a", "#ff5dd2", "#37e6ff", "#7dff8a", "#c05cff", "#ffffff"];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 6.283 + Math.random() * 0.3, sp = 1.6 + Math.random() * 3.4;
+    particles.push({x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 0.6, life: 1,
+      size: 2 + Math.random() * 3, color: palette[i % palette.length], kind: "spark", rot: 0, vr: 0, grav: 0.05});
+  }
+  if (particles.length > 520) particles.splice(0, particles.length - 520);
+}
+function coinFountain(x, y, n = 26) {
+  if (!vegasOn()) return;
+  for (let i = 0; i < n; i++) particles.push({
+    x: x + (Math.random() - 0.5) * 60, y, vx: (Math.random() - 0.5) * 2.4, vy: -3 - Math.random() * 4.4,
+    life: 1.4, size: 3.4 + Math.random() * 3, color: "#ffd76a", kind: "coin", rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.4
+  });
+  if (particles.length > 520) particles.splice(0, particles.length - 520);
+}
+function laserSweep(rows) {
+  if (!vegasOn()) return;
+  for (const y of rows) beams.push({x: 0, y: (y - HIDDEN) * CELL + CELL / 2, w: 300, h: 5, life: 1, color: "#ffffff"});
+  sfx.laser();
+}
+function ringFx(x, y, color = "#ffd76a") { if (vegasOn()) rings.push({x, y, r: 6, life: 1, color}); }
+function flashFx(color = "#ffffff") {
+  if (!vegasOn()) return;
+  const f = $("flash"); f.style.background = color;
+  f.classList.remove("go"); void f.offsetWidth; f.classList.add("go");
+}
+function punchFx() {
+  if (!vegasOn()) return;
+  const st = $("board-stage"); st.classList.remove("punch"); void st.offsetWidth; st.classList.add("punch");
+}
+function addFever(n) {
+  if (!vegasOn() || isFever()) return;
+  fever = Math.min(100, fever + n);
+  if (fever >= 100) {
+    feverUntil = performance.now() + 15000;
+    document.body.classList.add("fever");
+    showBanner("FEVER TIME!!", "✦ VEGAS MODE ✦", true);
+    sfx.fever();
+    fireworks(70, 160, 40); fireworks(230, 160, 40); fireworks(150, 300, 52);
+    coinFountain(150, 320, 22);
+  }
+}
+function updateFever(dt) {
+  const now = performance.now();
+  if (isFever()) fever = Math.max(0, 100 * (feverUntil - now) / 15000);
+  else { fever = Math.max(0, fever - dt * 0.0035); if (document.body.classList.contains("fever")) document.body.classList.remove("fever"); }
+  $("fever-fill").style.width = fever + "%";
 }
 function floatText(x, y, text, color = "#ffd76a", size = 20) {
   if (!settings.effects) return;
@@ -307,12 +367,44 @@ function shake() {
 }
 function drawFx(dt) {
   fctx.clearRect(0, 0, 300, 600);
+  /* 残像トレイル */
+  trails = trails.filter(t => t.life > 0);
+  for (const t of trails) {
+    t.life -= dt / 300;
+    for (const [x, y] of t.cells) if (y >= HIDDEN)
+      drawBlock(fctx, t.type, x * CELL, (y - HIDDEN) * CELL, CELL, Math.max(0, t.life) * 0.4, true);
+  }
+  /* レーザービーム */
+  beams = beams.filter(b => b.life > 0);
+  for (const b of beams) {
+    b.life -= dt / 300;
+    fctx.save(); fctx.globalAlpha = Math.max(0, b.life);
+    fctx.fillStyle = b.color; fctx.shadowColor = "#ffd76a"; fctx.shadowBlur = 22;
+    fctx.fillRect(b.x, b.y - (b.h * (2 - b.life)) / 2, b.w, b.h * (2 - b.life)); fctx.restore();
+  }
+  /* 衝撃波リング */
+  rings = rings.filter(r => r.life > 0);
+  for (const r of rings) {
+    r.r += dt / 4.4; r.life -= dt / 430;
+    fctx.save(); fctx.globalAlpha = Math.max(0, r.life);
+    fctx.strokeStyle = r.color; fctx.lineWidth = 3; fctx.shadowColor = r.color; fctx.shadowBlur = 14;
+    fctx.beginPath(); fctx.arc(r.x, r.y, r.r, 0, 7); fctx.stroke(); fctx.restore();
+  }
   particles = particles.filter(p => p.life > 0);
   for (const p of particles) {
-    p.x += p.vx; p.y += p.vy; p.vy += 0.16; p.life -= dt / 620;
-    fctx.save(); fctx.globalAlpha = Math.max(0, p.life);
-    fctx.fillStyle = p.color; fctx.shadowColor = p.color; fctx.shadowBlur = 8;
-    fctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); fctx.restore();
+    p.x += p.vx; p.y += p.vy; p.vy += p.grav !== undefined ? p.grav : 0.16; p.life -= dt / (p.kind === "coin" ? 1150 : 620);
+    if (p.rot !== undefined) p.rot += p.vr || 0;
+    fctx.save(); fctx.globalAlpha = Math.max(0, Math.min(1, p.life));
+    if (p.kind === "coin") {
+      fctx.translate(p.x, p.y); fctx.rotate(p.rot);
+      fctx.fillStyle = "#ffd76a"; fctx.shadowColor = "#ffbe3c"; fctx.shadowBlur = 10;
+      fctx.beginPath(); fctx.arc(0, 0, p.size, 0, 7); fctx.fill();
+      fctx.fillStyle = "#fff3b0"; fctx.beginPath(); fctx.arc(0, 0, p.size * 0.55, 0, 7); fctx.fill();
+    } else {
+      fctx.fillStyle = p.color; fctx.shadowColor = p.color; fctx.shadowBlur = 8;
+      fctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    fctx.restore();
   }
   floats = floats.filter(f => f.life > 0);
   for (const f of floats) {
@@ -419,6 +511,9 @@ function hardDrop() {
     for (let y = Math.max(HIDDEN, p.y); y < gy; y += 2) burst(x * CELL + 15, (y - HIDDEN) * CELL + 15, p.type, 1, 0.7);
   p.y = gy; S.score += dist * 2;
   sfx.hard(); shake();
+  if (vegasOn() && dist > 3) {
+    for (const [x] of cellsOf(p.type, p.state, p.x, gy)) ringFx(x * CELL + 15, (Math.max(HIDDEN, gy) - HIDDEN) * CELL + 26, COLORS[p.type][1]);
+  }
   lockPiece();
 }
 function lockPiece() {
@@ -449,9 +544,16 @@ function lockPiece() {
     /* 演出 */
     clearingRows = full; clearAnimUntil = performance.now() + 260;
     for (const y of full) for (let x = 0; x < COLS; x++) burst(x * CELL + 15, (y - HIDDEN) * CELL + 15, S.board[y][x], 5, 3.4);
-    if (boardAfterEmpty) { showBanner("PERFECT CLEAR!", res.label, true); sfx.pc(); floatText(150, 240, "+" + res.points.toLocaleString(), "#ffffff", 30); }
-    else if (lines === 4) { showBanner(wasB2B ? "B2B TETRIS!" : "TETRIS!", wasB2B ? "✦ BRILLIANT ✦" : "", true); sfx.tetris(); shake(); floatText(150, 260, "+" + res.points.toLocaleString(), "#ffd76a", 28); }
-    else if (tspin) { showBanner(res.label + "!", wasB2B && res.difficult ? "BACK-TO-BACK" : "", false); sfx.tspin(); floatText(150, 260, "+" + res.points.toLocaleString(), "#e0aaff", 24); }
+    laserSweep(full);
+    addFever(lines * 14 + (res.difficult ? 20 : 0) + Math.max(0, S.combo) * 3);
+    if (boardAfterEmpty) { showBanner("PERFECT CLEAR!", res.label, true); sfx.pc(); sfx.jackpot(); flashFx("#ffd76a"); punchFx(); hitStopUntil = performance.now() + 150;
+      fireworks(80, 220, 52); fireworks(220, 220, 52); fireworks(150, 380, 60); coinFountain(150, 430, 42);
+      floatText(150, 240, "+" + res.points.toLocaleString(), "#ffffff", 30); }
+    else if (lines === 4) { showBanner(wasB2B ? "B2B TETRIS!" : "TETRIS!", wasB2B ? "✦ BRILLIANT ✦" : "", true); sfx.tetris(); shake(); punchFx(); flashFx("#ffffff"); hitStopUntil = performance.now() + 95;
+      fireworks(150, 300, 56); ringFx(150, 300, "#ffd76a"); if (wasB2B) coinFountain(150, 380, 26);
+      floatText(150, 260, "+" + res.points.toLocaleString(), "#ffd76a", 28); }
+    else if (tspin) { showBanner(res.label + "!", wasB2B && res.difficult ? "BACK-TO-BACK" : "", false); sfx.tspin(); if (lines >= 2) fireworks(150, 320, 36);
+      floatText(150, 260, "+" + res.points.toLocaleString(), "#e0aaff", 24); }
     else { sfx.clear(lines); floatText(150, 260, "+" + res.points.toLocaleString(), "#a5f7ff", 19); }
     if (S.combo >= 1) floatText(150, 300, "COMBO " + S.combo, "#ff7ad9", 17);
     setTimeout(() => {
@@ -460,7 +562,7 @@ function lockPiece() {
       clearingRows = null;
       finishSpawn();
     }, settings.effects ? 240 : 0);
-    if (S.level > oldLevel) setTimeout(() => { showBanner("LEVEL " + S.level, "SPEED UP!"); sfx.levelup(); }, 300);
+    if (S.level > oldLevel) setTimeout(() => { showBanner("LEVEL " + S.level, "SPEED UP!"); sfx.levelup(); fireworks(90, 200, 40); fireworks(210, 200, 40); }, 300);
     updateHud();
     if (!endless && S.lines >= MARATHON_GOAL) return marathonClear();
     return;
@@ -489,6 +591,15 @@ function frame(t) {
   drawStars(t);
   if (!paused && !countingDown && S && !S.over && !clearingRows) {
     playMs += dt;
+    updateFever(dt);
+    if (vegasOn() && S.piece && performance.now() >= hitStopUntil) {
+      trailAcc += dt;
+      if (trailAcc > 46 && (keys.down || isFever())) {
+        trailAcc = 0;
+        trails.push({cells: cellsOf(S.piece.type, S.piece.state, S.piece.x, S.piece.y), type: S.piece.type, life: 0.55});
+        if (trails.length > 14) trails.shift();
+      }
+    }
     /* DAS / ARR */
     const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
     if (dir !== 0 && dir === activeDir) {
@@ -500,9 +611,10 @@ function frame(t) {
         else if (step > 0) { arrAcc -= step * settings.arr; for (let i = 0; i < step; i++) if (tryMove(dir, 0)) sfx.move(); }
       }
     }
-    /* 重力 / ソフトドロップ */
+    /* 重力 / ソフトドロップ(ヒットストップ中は落下だけ止める) */
+    const hitFrozen = performance.now() < hitStopUntil;
     const interval = keys.down ? Math.min(20, gravityMs(S.level) / 20) : gravityMs(S.level);
-    dropAcc += dt;
+    if (!hitFrozen) dropAcc += dt;
     while (dropAcc >= interval) {
       dropAcc -= interval;
       if (!tryMove(0, 1)) break;
@@ -510,7 +622,7 @@ function frame(t) {
     }
     /* ロックディレイ */
     grounded = collides(S.board, S.piece.type, S.piece.state, S.piece.x, S.piece.y + 1);
-    if (grounded) { lockAcc += dt; if (lockAcc >= LOCK_DELAY) { lockPiece(); lockAcc = 0; dropAcc = 0; } }
+    if (grounded && !hitFrozen) { lockAcc += dt; if (lockAcc >= LOCK_DELAY) { lockPiece(); lockAcc = 0; dropAcc = 0; } }
     else lockAcc = 0;
     if (S && S.piece) updateHudSoft();
   }
@@ -576,7 +688,8 @@ function fmtTime(ms) { const s = Math.floor(ms / 1000); return String(Math.floor
 function startGame(keepEndless = false) {
   S = newState(); refill(S);
   endless = keepEndless; holdUsed = false; paused = false; playMs = 0; dropAcc = 0; lockAcc = 0;
-  particles = []; floats = []; clearingRows = null;
+  particles = []; floats = []; beams = []; rings = []; trails = []; clearingRows = null;
+  fever = 0; feverUntil = 0; hitStopUntil = 0; document.body.classList.remove("fever");
   $("start-overlay").hidden = true; $("results").hidden = true; $("pause-visual").hidden = true;
   $("pause").textContent = "一時停止（P）";
   if (!spawn(S)) return gameOver();
@@ -648,6 +761,7 @@ function syncSettingsUi() {
   $("setting-volume").value = settings.volume * 100; $("setting-volume-value").textContent = Math.round(settings.volume * 100) + "%";
   $("setting-effects").checked = settings.effects;
   $("setting-shake").checked = settings.shake;
+  $("setting-vegas").checked = settings.vegas;
   $("toggle-sound").textContent = settings.sfx ? "SOUND ON（M）" : "SOUND OFF（M）";
 }
 function openSettings() { syncSettingsUi(); $("settings-overlay").hidden = false; }
@@ -658,7 +772,8 @@ $("setting-sfx").addEventListener("change", e => { settings.sfx = e.target.check
 $("setting-volume").addEventListener("input", e => { settings.volume = +e.target.value / 100; syncSettingsUi(); });
 $("setting-effects").addEventListener("change", e => { settings.effects = e.target.checked; });
 $("setting-shake").addEventListener("change", e => { settings.shake = e.target.checked; });
-$("reset-settings").addEventListener("click", () => { Object.assign(settings, {das: 150, arr: 30, sfx: true, volume: 0.8, effects: true, shake: true}); syncSettingsUi(); saveSettings(); });
+$("setting-vegas").addEventListener("change", e => { settings.vegas = e.target.checked; if (!settings.vegas) { document.body.classList.remove("fever"); fever = 0; feverUntil = 0; } });
+$("reset-settings").addEventListener("click", () => { Object.assign(settings, {das: 150, arr: 30, sfx: true, volume: 0.8, effects: true, shake: true, vegas: true}); syncSettingsUi(); saveSettings(); });
 $("close-settings").addEventListener("click", closeSettings);
 $("open-settings").addEventListener("click", openSettings);
 $("toggle-sound").addEventListener("click", () => { settings.sfx = !settings.sfx; saveSettings(); syncSettingsUi(); });

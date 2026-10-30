@@ -81,6 +81,15 @@ test("出現位置: 全ピースが出現した瞬間に全体が見える", () 
   assert.equal(G.spawnY("T"), 2);
 });
 
+test("VEGAS演出: フィーバー/花火/コイン/レーザーの実装が存在する", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const js = fs.readFileSync(path.join(__dirname, "game.js"), "utf8");
+  for (const name of ["fireworks", "coinFountain", "laserSweep", "addFever", "FEVER TIME"])
+    assert.ok(js.includes(name), name);
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  assert.ok(html.includes("fever-bar") && html.includes("setting-vegas"));
+});
+
 test("CSS: [hidden] が display:flex 等に勝つ回帰防止(PAUSED/GO!残留バグ)", () => {
   const fs = require("node:fs"), path = require("node:path");
   const css = fs.readFileSync(path.join(__dirname, "style.css"), "utf8");
