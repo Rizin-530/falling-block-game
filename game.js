@@ -338,10 +338,11 @@ function addFever(n) {
   if (fever >= 100) {
     feverUntil = performance.now() + 15000;
     document.body.classList.add("fever");
-    showBanner("FEVER TIME!!", "✦ VEGAS MODE ✦", true);
+    showBanner("FEVER TIME!!", "✦ VEGAS MODE ✦", true, true);
     sfx.fever();
     fireworks(70, 160, 40); fireworks(230, 160, 40); fireworks(150, 300, 52);
     coinFountain(150, 320, 22);
+    screenFireworks(innerWidth * 0.3, innerHeight * 0.28, 60); screenFireworks(innerWidth * 0.7, innerHeight * 0.28, 60); confettiCannons(64);
   }
 }
 function updateFever(dt) {
@@ -354,13 +355,14 @@ function floatText(x, y, text, color = "#ffd76a", size = 20) {
   if (!settings.effects) return;
   floats.push({x, y, text, color, size, life: 1});
 }
-function showBanner(main, sub = "", rainbow = false) {
+function showBanner(main, sub = "", rainbow = false, mega = false) {
   const b = $("banner");
   b.innerHTML = "";
   b.textContent = main;
   if (sub) { const s = document.createElement("small"); s.textContent = sub; b.appendChild(s); }
-  b.classList.remove("pop", "rainbow"); void b.offsetWidth;
+  b.classList.remove("pop", "rainbow", "mega"); void b.offsetWidth;
   if (rainbow) b.classList.add("rainbow");
+  if (mega) b.classList.add("mega");
   b.classList.add("pop");
 }
 function shake() {
@@ -435,6 +437,62 @@ function drawStars(t) {
   }
 }
 
+/* ===== 画面全体FX(全画面キャンバス) ===== */
+const sfCv = $("screen-fx"), sfCtx = sfCv.getContext("2d");
+let sParts = [], dispScore = 0, attractLast = 0;
+function sizeScreenFx() { sfCv.width = innerWidth; sfCv.height = innerHeight; }
+addEventListener("resize", sizeScreenFx); sizeScreenFx();
+const SF_COLORS = ["#ffd76a", "#ff5dd2", "#37e6ff", "#7dff8a", "#c05cff", "#ff8a5c", "#ffffff"];
+function screenFireworks(x, y, n = 60) {
+  if (!vegasOn()) return;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 6.283 + Math.random() * 0.35, sp = 2 + Math.random() * 5.2;
+    sParts.push({x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, life: 1, size: 2 + Math.random() * 3.2,
+      color: SF_COLORS[i % SF_COLORS.length], kind: "spark", rot: 0, vr: 0});
+  }
+  if (sParts.length > 650) sParts.splice(0, sParts.length - 650);
+}
+function confettiCannons(n = 70) {
+  if (!vegasOn()) return;
+  for (const sx of [30, innerWidth - 30]) for (let i = 0; i < n / 2; i++) {
+    const dir = sx < innerWidth / 2 ? 1 : -1;
+    sParts.push({x: sx, y: innerHeight - 8, vx: dir * (1.6 + Math.random() * 4.6), vy: -8.5 - Math.random() * 6,
+      life: 1.6, size: 4 + Math.random() * 5, color: SF_COLORS[Math.floor(Math.random() * SF_COLORS.length)],
+      kind: "confetti", rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.35});
+  }
+  if (sParts.length > 650) sParts.splice(0, sParts.length - 650);
+}
+function drawScreenFx(dt) {
+  sfCtx.clearRect(0, 0, sfCv.width, sfCv.height);
+  sParts = sParts.filter(p => p.life > 0 && p.y < innerHeight + 30);
+  for (const p of sParts) {
+    p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+    if (p.kind === "confetti") { p.vy += 0.14; p.vx *= 0.985; p.vy = Math.min(p.vy, 2.6); p.life -= dt / 2400; }
+    else { p.vy += 0.045; p.life -= dt / 1250; }
+    sfCtx.save(); sfCtx.globalAlpha = Math.max(0, Math.min(1, p.life));
+    sfCtx.translate(p.x, p.y); sfCtx.rotate(p.rot);
+    sfCtx.fillStyle = p.color; sfCtx.shadowColor = p.color; sfCtx.shadowBlur = p.kind === "spark" ? 9 : 0;
+    if (p.kind === "confetti") sfCtx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+    else sfCtx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+    sfCtx.restore();
+  }
+  /* スコアのカウントアップ */
+  if (S && dispScore !== S.score) {
+    const diff = S.score - dispScore;
+    dispScore += Math.sign(diff) * Math.max(1, Math.ceil(Math.abs(diff) * 0.22));
+    if ((diff > 0 && dispScore > S.score) || (diff < 0 && dispScore < S.score)) dispScore = S.score;
+    $("score").textContent = dispScore.toLocaleString();
+  }
+}
+/* スタート画面のアトラクト花火 + 星空(非プレイ中の常駐ループ) */
+function ambientLoop(t) {
+  requestAnimationFrame(ambientLoop);
+  if (running) return;
+  drawStars(t || 0); drawScreenFx(16);
+  if (vegasOn() && t - attractLast > 2700) { attractLast = t; screenFireworks(innerWidth * (0.2 + Math.random() * 0.6), innerHeight * (0.16 + Math.random() * 0.25), 54); }
+}
+requestAnimationFrame(ambientLoop);
+
 /* ---------- ゲーム進行 ---------- */
 function updateHud() {
   $("score").textContent = S.score.toLocaleString();
@@ -449,6 +507,12 @@ function updateHud() {
   cb.textContent = S.combo >= 1 ? `COMBO ${S.combo}` : "";
   cb.className = "chip" + (S.combo >= 1 ? " combo-on" : "");
   $("board-stage").classList.toggle("b2b-on", S.b2b);
+  $("board-stage").classList.toggle("combo-hot", S.combo >= 4);
+  for (const [id, val] of [["level", S.level], ["lines", S.lines]]) {
+    const el = $(id);
+    if (el.dataset.v !== undefined && el.dataset.v !== String(val)) { el.classList.remove("pop-num"); void el.offsetWidth; el.classList.add("pop-num"); }
+    el.dataset.v = String(val);
+  }
   let topY = ROWS;
   for (let y = 0; y < ROWS; y++) if (S.board[y].some(c => c)) { topY = y; break; }
   $("board-stage").classList.toggle("danger", running && !S.over && topY - HIDDEN <= 5);
@@ -549,11 +613,13 @@ function lockPiece() {
     for (const y of full) for (let x = 0; x < COLS; x++) burst(x * CELL + 15, (y - HIDDEN) * CELL + 15, S.board[y][x], 5, 3.4);
     laserSweep(full);
     addFever(lines * 14 + (res.difficult ? 20 : 0) + Math.max(0, S.combo) * 3);
-    if (boardAfterEmpty) { showBanner("PERFECT CLEAR!", res.label, true); sfx.pc(); sfx.jackpot(); flashFx("#ffd76a"); punchFx(); hitStopUntil = performance.now() + 150;
+    if (boardAfterEmpty) { showBanner("PERFECT CLEAR!", res.label, true, true); sfx.pc(); sfx.jackpot(); flashFx("#ffd76a"); punchFx(); hitStopUntil = performance.now() + 150;
       fireworks(80, 220, 72); fireworks(220, 220, 72); fireworks(150, 380, 84); coinFountain(150, 430, 42);
+      screenFireworks(innerWidth / 2, innerHeight * 0.3, 84); confettiCannons(84);
       floatText(150, 240, "+" + res.points.toLocaleString(), "#ffffff", 30); }
-    else if (lines === 4) { showBanner(wasB2B ? "B2B TETRIS!" : "TETRIS!", wasB2B ? "✦ BRILLIANT ✦" : "", true); sfx.tetris(); shake(); punchFx(); flashFx("#ffffff"); hitStopUntil = performance.now() + 95;
+    else if (lines === 4) { showBanner(wasB2B ? "B2B TETRIS!" : "TETRIS!", wasB2B ? "✦ BRILLIANT ✦" : "", true, true); sfx.tetris(); shake(); punchFx(); flashFx("#ffffff"); hitStopUntil = performance.now() + 95;
       fireworks(150, 300, 88); fireworks(60, 180, 40); fireworks(240, 180, 40); ringFx(150, 300, "#ffd76a"); if (wasB2B) coinFountain(150, 380, 26);
+      screenFireworks(innerWidth / 2, innerHeight * 0.32, 64);
       floatText(150, 260, "+" + res.points.toLocaleString(), "#ffd76a", 28); }
     else if (tspin) { showBanner(res.label + "!", wasB2B && res.difficult ? "BACK-TO-BACK" : "", false); sfx.tspin(); if (lines >= 2) fireworks(150, 320, 36);
       floatText(150, 260, "+" + res.points.toLocaleString(), "#e0aaff", 24); }
@@ -565,7 +631,7 @@ function lockPiece() {
       clearingRows = null;
       finishSpawn();
     }, settings.effects ? 240 : 0);
-    if (S.level > oldLevel) setTimeout(() => { showBanner("LEVEL " + S.level, "SPEED UP!"); sfx.levelup(); fireworks(90, 200, 40); fireworks(210, 200, 40); }, 300);
+    if (S.level > oldLevel) setTimeout(() => { showBanner("LEVEL " + S.level, "SPEED UP!"); sfx.levelup(); fireworks(90, 200, 40); fireworks(210, 200, 40); screenFireworks(innerWidth * (0.25 + Math.random() * 0.5), innerHeight * 0.22, 48); }, 300);
     updateHud();
     if (!milestoneDone && S.lines >= MILESTONE_LINES) { milestoneDone = true; celebrateMilestone(); }
     return;
@@ -583,6 +649,7 @@ function lockPiece() {
 function finishSpawn() {
   holdUsed = false;
   if (!spawn(S)) return gameOver();
+  if (vegasOn() && S.piece) { ringFx(S.piece.x * CELL + 45, 24, COLORS[S.piece.type][1]); burst(150, 22, S.piece.type, 6, 1.6); }
   drawPreview(holdCv, S.hold, false); drawNext(); updateHud();
 }
 
@@ -637,7 +704,7 @@ function frame(t) {
     else lockAcc = 0;
     if (S && S.piece) updateHudSoft();
   }
-  drawBoard(); drawFx(dt);
+  drawBoard(); drawFx(dt); drawScreenFx(dt);
 }
 function updateHudSoft() { $("score").textContent = S.score.toLocaleString(); }
 
@@ -698,7 +765,7 @@ document.querySelectorAll(".touch-pad button").forEach(btn => {
 function fmtTime(ms) { const s = Math.floor(ms / 1000); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); }
 function startGame() {
   S = newState(); refill(S);
-  milestoneDone = false; holdUsed = false; paused = false; playMs = 0; dropAcc = 0; lockAcc = 0;
+  milestoneDone = false; holdUsed = false; paused = false; playMs = 0; dropAcc = 0; lockAcc = 0; dispScore = 0;
   particles = []; floats = []; beams = []; rings = []; trails = []; clearingRows = null;
   fever = 0; feverUntil = 0; hitStopUntil = 0; document.body.classList.remove("fever");
   $("start-overlay").hidden = true; $("results").hidden = true; $("pause-visual").hidden = true;
@@ -752,10 +819,11 @@ function gameOver() {
 /* 150ライン通過点: ゲームは止めずにお祝いだけ出す */
 function celebrateMilestone() {
   setTimeout(() => {
-    showBanner("150 LINES!", "✦ MILESTONE — まだまだ続くよ ✦", true);
+    showBanner("150 LINES!", "✦ MILESTONE — まだまだ続くよ ✦", true, true);
     sfx.pc(); sfx.jackpot();
     fireworks(80, 200, 60); fireworks(220, 200, 60); fireworks(150, 360, 72);
     coinFountain(150, 420, 34); flashFx("#ffd76a");
+    screenFireworks(innerWidth / 2, innerHeight * 0.26, 84); confettiCannons(96);
     $("status").textContent = "150ライン通過！ そのままエンドレス続行中";
   }, 350);
 }

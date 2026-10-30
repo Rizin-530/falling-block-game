@@ -104,6 +104,15 @@ test("重力テーブル: レベルが上がると速くなる", () => {
   assert.equal(G.gravityMs(1), 1000);
 });
 
+test("VEGAS MAX: 全画面花火・紙吹雪・カウントアップの実装が存在する", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const js = fs.readFileSync(path.join(__dirname, "game.js"), "utf8");
+  for (const name of ["screenFireworks", "confettiCannons", "drawScreenFx", "dispScore", "combo-hot"])
+    assert.ok(js.includes(name) || fs.readFileSync(path.join(__dirname, "style.css"), "utf8").includes(name), name);
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  assert.ok(html.includes("screen-fx"));
+});
+
 test("既定エンドレス: 150ラインは通過点でゲームを止めない", () => {
   const fs = require("node:fs"), path = require("node:path");
   const js = fs.readFileSync(path.join(__dirname, "game.js"), "utf8");
