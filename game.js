@@ -175,8 +175,8 @@ const sfx = {
   soft: () => tone(180, 0.02, "square", 0.03),
   hard: () => { tone(120, 0.12, "sawtooth", 0.22, 0, -70); tone(60, 0.16, "sine", 0.3); },
   lock: () => tone(200, 0.05, "square", 0.1),
-  clear: n => [523, 659, 784].slice(0, 2 + n).forEach((f, i) => tone(f, 0.1, "triangle", 0.14, i * 0.05)),
-  tetris: () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.14, "triangle", 0.16, i * 0.06)),
+  clear: n => [523, 659, 784, 1047].slice(0, 2 + n).forEach((f, i) => tone(f, 0.11, "triangle", 0.16, i * 0.05)),
+  tetris: () => [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => tone(f, 0.15, "triangle", 0.17, i * 0.06)),
   tspin: () => [392, 587, 880, 1175].forEach((f, i) => tone(f, 0.12, "square", 0.1, i * 0.05)),
   levelup: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.16, "triangle", 0.15, i * 0.09)),
   pc: () => [784, 988, 1175, 1568, 2093].forEach((f, i) => tone(f, 0.18, "sine", 0.16, i * 0.07)),
@@ -218,7 +218,7 @@ function drawBlock(ctx, type, px, py, size, alpha = 1, ghost = false) {
   const g = ctx.createLinearGradient(px, py, px, py + size);
   g.addColorStop(0, hi); g.addColorStop(0.45, mid); g.addColorStop(1, lo);
   ctx.fillStyle = g;
-  ctx.shadowColor = mid; ctx.shadowBlur = 7;
+  ctx.shadowColor = mid; ctx.shadowBlur = 12;
   roundRect(ctx, px + 1, py + 1, size - 2, size - 2, 6); ctx.fill();
   ctx.shadowBlur = 0;
   ctx.fillStyle = "rgba(255,255,255,.5)";
@@ -293,7 +293,7 @@ function burst(x, y, type, n = 10, power = 3, kind = "spark") {
   const [, mid] = COLORS[type] || ["#fff", "#ffd76a"];
   for (let i = 0; i < n; i++) particles.push({
     x, y, vx: (Math.random() - 0.5) * power * 2, vy: -Math.random() * power - 1,
-    life: 1, size: 2 + Math.random() * 3.5, color: Math.random() < 0.3 ? "#ffffff" : mid,
+    life: 1, size: 2.8 + Math.random() * 4.8, color: Math.random() < 0.3 ? "#ffffff" : mid,
     kind, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3
   });
   if (particles.length > 520) particles.splice(0, particles.length - 520);
@@ -303,23 +303,23 @@ function fireworks(x, y, n = 46) {
   if (!vegasOn()) return;
   const palette = ["#ffd76a", "#ff5dd2", "#37e6ff", "#7dff8a", "#c05cff", "#ffffff"];
   for (let i = 0; i < n; i++) {
-    const a = (i / n) * 6.283 + Math.random() * 0.3, sp = 1.6 + Math.random() * 3.4;
+    const a = (i / n) * 6.283 + Math.random() * 0.3, sp = 2.1 + Math.random() * 4.6;
     particles.push({x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 0.6, life: 1,
-      size: 2 + Math.random() * 3, color: palette[i % palette.length], kind: "spark", rot: 0, vr: 0, grav: 0.05});
+      size: 2.6 + Math.random() * 3.8, color: palette[i % palette.length], kind: "spark", rot: 0, vr: 0, grav: 0.05});
   }
   if (particles.length > 520) particles.splice(0, particles.length - 520);
 }
-function coinFountain(x, y, n = 26) {
+function coinFountain(x, y, n = 38) {
   if (!vegasOn()) return;
   for (let i = 0; i < n; i++) particles.push({
     x: x + (Math.random() - 0.5) * 60, y, vx: (Math.random() - 0.5) * 2.4, vy: -3 - Math.random() * 4.4,
-    life: 1.4, size: 3.4 + Math.random() * 3, color: "#ffd76a", kind: "coin", rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.4
+    life: 1.7, size: 4.4 + Math.random() * 3.8, color: "#ffd76a", kind: "coin", rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.4
   });
   if (particles.length > 520) particles.splice(0, particles.length - 520);
 }
 function laserSweep(rows) {
   if (!vegasOn()) return;
-  for (const y of rows) beams.push({x: 0, y: (y - HIDDEN) * CELL + CELL / 2, w: 300, h: 5, life: 1, color: "#ffffff"});
+  for (const y of rows) beams.push({x: 0, y: (y - HIDDEN) * CELL + CELL / 2, w: 300, h: 9, life: 1, color: "#ffffff"});
   sfx.laser();
 }
 function ringFx(x, y, color = "#ffd76a") { if (vegasOn()) rings.push({x, y, r: 6, life: 1, color}); }
@@ -342,7 +342,7 @@ function addFever(n) {
     sfx.fever();
     fireworks(70, 160, 40); fireworks(230, 160, 40); fireworks(150, 300, 52);
     coinFountain(150, 320, 22);
-    screenFireworks(innerWidth * 0.3, innerHeight * 0.28, 60); screenFireworks(innerWidth * 0.7, innerHeight * 0.28, 60); confettiCannons(64);
+    screenFireworks(innerWidth * 0.3, innerHeight * 0.28, 84); screenFireworks(innerWidth * 0.7, innerHeight * 0.28, 84); confettiCannons(88);
   }
 }
 function updateFever(dt) {
@@ -376,36 +376,36 @@ function drawFx(dt) {
   for (const t of trails) {
     t.life -= dt / 300;
     for (const [x, y] of t.cells) if (y >= HIDDEN)
-      drawBlock(fctx, t.type, x * CELL, (y - HIDDEN) * CELL, CELL, Math.max(0, t.life) * 0.4, true);
+      drawBlock(fctx, t.type, x * CELL, (y - HIDDEN) * CELL, CELL, Math.max(0, t.life) * 0.6, true);
   }
   /* レーザービーム */
   beams = beams.filter(b => b.life > 0);
   for (const b of beams) {
-    b.life -= dt / 300;
+    b.life -= dt / 440;
     fctx.save(); fctx.globalAlpha = Math.max(0, b.life);
-    fctx.fillStyle = b.color; fctx.shadowColor = "#ffd76a"; fctx.shadowBlur = 22;
+    fctx.fillStyle = b.color; fctx.shadowColor = "#ffd76a"; fctx.shadowBlur = 34;
     fctx.fillRect(b.x, b.y - (b.h * (2 - b.life)) / 2, b.w, b.h * (2 - b.life)); fctx.restore();
   }
   /* 衝撃波リング */
   rings = rings.filter(r => r.life > 0);
   for (const r of rings) {
-    r.r += dt / 4.4; r.life -= dt / 430;
+    r.r += dt / 3.1; r.life -= dt / 580;
     fctx.save(); fctx.globalAlpha = Math.max(0, r.life);
-    fctx.strokeStyle = r.color; fctx.lineWidth = 3; fctx.shadowColor = r.color; fctx.shadowBlur = 14;
+    fctx.strokeStyle = r.color; fctx.lineWidth = 5; fctx.shadowColor = r.color; fctx.shadowBlur = 22;
     fctx.beginPath(); fctx.arc(r.x, r.y, r.r, 0, 7); fctx.stroke(); fctx.restore();
   }
   particles = particles.filter(p => p.life > 0);
   for (const p of particles) {
-    p.x += p.vx; p.y += p.vy; p.vy += p.grav !== undefined ? p.grav : 0.16; p.life -= dt / (p.kind === "coin" ? 1150 : 620);
+    p.x += p.vx; p.y += p.vy; p.vy += p.grav !== undefined ? p.grav : 0.16; p.life -= dt / (p.kind === "coin" ? 1450 : 800);
     if (p.rot !== undefined) p.rot += p.vr || 0;
     fctx.save(); fctx.globalAlpha = Math.max(0, Math.min(1, p.life));
     if (p.kind === "coin") {
       fctx.translate(p.x, p.y); fctx.rotate(p.rot);
-      fctx.fillStyle = "#ffd76a"; fctx.shadowColor = "#ffbe3c"; fctx.shadowBlur = 10;
+      fctx.fillStyle = "#ffd76a"; fctx.shadowColor = "#ffbe3c"; fctx.shadowBlur = 16;
       fctx.beginPath(); fctx.arc(0, 0, p.size, 0, 7); fctx.fill();
       fctx.fillStyle = "#fff3b0"; fctx.beginPath(); fctx.arc(0, 0, p.size * 0.55, 0, 7); fctx.fill();
     } else {
-      fctx.fillStyle = p.color; fctx.shadowColor = p.color; fctx.shadowBlur = 8;
+      fctx.fillStyle = p.color; fctx.shadowColor = p.color; fctx.shadowBlur = 14;
       fctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
     }
     fctx.restore();
@@ -446,7 +446,7 @@ const SF_COLORS = ["#ffd76a", "#ff5dd2", "#37e6ff", "#7dff8a", "#c05cff", "#ff8a
 function screenFireworks(x, y, n = 60) {
   if (!vegasOn()) return;
   for (let i = 0; i < n; i++) {
-    const a = (i / n) * 6.283 + Math.random() * 0.35, sp = 2 + Math.random() * 5.2;
+    const a = (i / n) * 6.283 + Math.random() * 0.35, sp = 2.4 + Math.random() * 6.8;
     sParts.push({x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, life: 1, size: 2 + Math.random() * 3.2,
       color: SF_COLORS[i % SF_COLORS.length], kind: "spark", rot: 0, vr: 0});
   }
@@ -468,7 +468,7 @@ function drawScreenFx(dt) {
   for (const p of sParts) {
     p.x += p.vx; p.y += p.vy; p.rot += p.vr;
     if (p.kind === "confetti") { p.vy += 0.14; p.vx *= 0.985; p.vy = Math.min(p.vy, 2.6); p.life -= dt / 2400; }
-    else { p.vy += 0.045; p.life -= dt / 1250; }
+    else { p.vy += 0.045; p.life -= dt / 1650; }
     sfCtx.save(); sfCtx.globalAlpha = Math.max(0, Math.min(1, p.life));
     sfCtx.translate(p.x, p.y); sfCtx.rotate(p.rot);
     sfCtx.fillStyle = p.color; sfCtx.shadowColor = p.color; sfCtx.shadowBlur = p.kind === "spark" ? 9 : 0;
@@ -489,7 +489,7 @@ function ambientLoop(t) {
   requestAnimationFrame(ambientLoop);
   if (running) return;
   drawStars(t || 0); drawScreenFx(16);
-  if (vegasOn() && t - attractLast > 2700) { attractLast = t; screenFireworks(innerWidth * (0.2 + Math.random() * 0.6), innerHeight * (0.16 + Math.random() * 0.25), 54); }
+  if (vegasOn() && t - attractLast > 2100) { attractLast = t; screenFireworks(innerWidth * (0.2 + Math.random() * 0.6), innerHeight * (0.16 + Math.random() * 0.25), 76); }
 }
 requestAnimationFrame(ambientLoop);
 
@@ -612,19 +612,19 @@ function lockPiece() {
     clearingRows = full; clearAnimUntil = performance.now() + 260;
     for (const y of full) for (let x = 0; x < COLS; x++) burst(x * CELL + 15, (y - HIDDEN) * CELL + 15, S.board[y][x], 5, 3.4);
     laserSweep(full);
-    addFever(lines * 14 + (res.difficult ? 20 : 0) + Math.max(0, S.combo) * 3);
-    if (boardAfterEmpty) { showBanner("PERFECT CLEAR!", res.label, true, true); sfx.pc(); sfx.jackpot(); flashFx("#ffd76a"); punchFx(); hitStopUntil = performance.now() + 150;
-      fireworks(80, 220, 72); fireworks(220, 220, 72); fireworks(150, 380, 84); coinFountain(150, 430, 42);
-      screenFireworks(innerWidth / 2, innerHeight * 0.3, 84); confettiCannons(84);
-      floatText(150, 240, "+" + res.points.toLocaleString(), "#ffffff", 30); }
-    else if (lines === 4) { showBanner(wasB2B ? "B2B TETRIS!" : "TETRIS!", wasB2B ? "✦ BRILLIANT ✦" : "", true, true); sfx.tetris(); shake(); punchFx(); flashFx("#ffffff"); hitStopUntil = performance.now() + 95;
-      fireworks(150, 300, 88); fireworks(60, 180, 40); fireworks(240, 180, 40); ringFx(150, 300, "#ffd76a"); if (wasB2B) coinFountain(150, 380, 26);
-      screenFireworks(innerWidth / 2, innerHeight * 0.32, 64);
-      floatText(150, 260, "+" + res.points.toLocaleString(), "#ffd76a", 28); }
+    addFever(lines * 21 + (res.difficult ? 30 : 0) + Math.max(0, S.combo) * 4);
+    if (boardAfterEmpty) { showBanner("PERFECT CLEAR!", res.label, true, true); sfx.pc(); sfx.jackpot(); flashFx("#ffd76a"); punchFx(); hitStopUntil = performance.now() + 195;
+      fireworks(80, 220, 96); fireworks(220, 220, 96); fireworks(150, 380, 110); coinFountain(150, 430, 58);
+      screenFireworks(innerWidth / 2, innerHeight * 0.3, 116); confettiCannons(116);
+      floatText(150, 240, "+" + res.points.toLocaleString(), "#ffffff", 38); }
+    else if (lines === 4) { showBanner(wasB2B ? "B2B TETRIS!" : "TETRIS!", wasB2B ? "✦ BRILLIANT ✦" : "", true, true); sfx.tetris(); shake(); punchFx(); flashFx("#ffffff"); hitStopUntil = performance.now() + 135;
+      fireworks(150, 300, 124); fireworks(60, 180, 56); fireworks(240, 180, 56); ringFx(150, 300, "#ffd76a"); if (wasB2B) coinFountain(150, 380, 26);
+      screenFireworks(innerWidth / 2, innerHeight * 0.32, 92);
+      floatText(150, 260, "+" + res.points.toLocaleString(), "#ffd76a", 36); }
     else if (tspin) { showBanner(res.label + "!", wasB2B && res.difficult ? "BACK-TO-BACK" : "", false); sfx.tspin(); if (lines >= 2) fireworks(150, 320, 36);
-      floatText(150, 260, "+" + res.points.toLocaleString(), "#e0aaff", 24); }
-    else { sfx.clear(lines); if (lines >= 2) { flashFx(lines === 3 ? "#ffe9a8" : "#bfe9ff"); ringFx(150, (full[0] - HIDDEN) * CELL + 15, "#8ae9ff"); } floatText(150, 260, "+" + res.points.toLocaleString(), "#a5f7ff", 19); }
-    if (S.combo >= 1) floatText(150, 300, "COMBO " + S.combo, "#ff7ad9", 17);
+      floatText(150, 260, "+" + res.points.toLocaleString(), "#e0aaff", 30); }
+    else { sfx.clear(lines); if (lines >= 2) { flashFx(lines === 3 ? "#ffe9a8" : "#bfe9ff"); ringFx(150, (full[0] - HIDDEN) * CELL + 15, "#8ae9ff"); } floatText(150, 260, "+" + res.points.toLocaleString(), "#a5f7ff", 24); }
+    if (S.combo >= 1) floatText(150, 300, "COMBO " + S.combo, "#ff7ad9", 22);
     setTimeout(() => {
       S.board = S.board.filter((_, ry) => !full.includes(ry));
       while (S.board.length < ROWS) S.board.unshift(Array(COLS).fill(null));
@@ -664,7 +664,7 @@ function frame(t) {
     updateFever(dt);
     /* 盤内を漂うキラキラ(アンビエント) */
     if (vegasOn()) {
-      if (Math.random() < dt / (isFever() ? 40 : 130)) {
+      if (Math.random() < dt / (isFever() ? 26 : 78)) {
         const cols = ["#ffd76a", "#ff9de2", "#8ae9ff", "#ffffff"];
         particles.push({x: Math.random() * 296 + 2, y: 596, vx: (Math.random() - 0.5) * 0.3, vy: -0.5 - Math.random() * 0.9,
           life: 1, size: 1.4 + Math.random() * 2, color: cols[Math.floor(Math.random() * cols.length)], kind: "spark", rot: 0, vr: 0, grav: -0.006});
@@ -672,9 +672,9 @@ function frame(t) {
     }
     if (vegasOn() && S.piece && performance.now() >= hitStopUntil) {
       trailAcc += dt;
-      if (trailAcc > 46 && (keys.down || isFever())) {
+      if (trailAcc > 34 && (keys.down || isFever())) {
         trailAcc = 0;
-        trails.push({cells: cellsOf(S.piece.type, S.piece.state, S.piece.x, S.piece.y), type: S.piece.type, life: 0.55});
+        trails.push({cells: cellsOf(S.piece.type, S.piece.state, S.piece.x, S.piece.y), type: S.piece.type, life: 0.85});
         if (trails.length > 14) trails.shift();
       }
     }
@@ -823,7 +823,7 @@ function celebrateMilestone() {
     sfx.pc(); sfx.jackpot();
     fireworks(80, 200, 60); fireworks(220, 200, 60); fireworks(150, 360, 72);
     coinFountain(150, 420, 34); flashFx("#ffd76a");
-    screenFireworks(innerWidth / 2, innerHeight * 0.26, 84); confettiCannons(96);
+    screenFireworks(innerWidth / 2, innerHeight * 0.26, 116); confettiCannons(128);
     $("status").textContent = "150ライン通過！ そのままエンドレス続行中";
   }, 350);
 }
