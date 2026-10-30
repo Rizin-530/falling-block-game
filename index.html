@@ -3,212 +3,144 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>落ちものブロックパズル</title>
+  <title>BRILLIANT BLOCKS — 落ちものブロックパズル</title>
+  <meta name="description" content="ド派手な演出とゴージャスなエフェクトで贈る、基本に忠実な落ちものブロックパズル。7種1巡・SRS・HOLD・NEXT5・ゴースト対応。">
   <link rel="stylesheet" href="style.css">
   <script src="game.js" defer></script>
 </head>
 <body>
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+  <canvas id="bg-stars" aria-hidden="true"></canvas>
+
   <main>
     <header class="heading">
-      <p class="eyebrow">BLOCK PUZZLE</p>
-      <h1>落ちものブロックパズル</h1>
-      <p id="vs-mode-label" class="vs-mode-label">YOU <span>VS</span> CPU</p>
+      <p class="eyebrow">✦ BRILLIANT BLOCKS ✦</p>
+      <h1 class="logo">BRILLIANT<span>BLOCKS</span></h1>
+      <p class="tagline">基本に忠実、演出は有料級。— MARATHON 150 LINES</p>
     </header>
-    <div class="game-shell">
+
     <div class="game-layout">
-      <aside class="left-panel" aria-label="HOLDと操作ガイド">
+      <aside class="left-panel">
         <section class="panel preview-panel">
           <h2>HOLD <kbd>C</kbd></h2>
-          <canvas id="hold" width="120" height="80" aria-label="保留中のブロック"></canvas>
-          <p class="hint">固定まで1回交換できます</p>
+          <canvas id="hold" width="132" height="88"></canvas>
+          <p class="hint">1ピースに1回まで</p>
         </section>
         <section class="panel controls">
           <h2>操作ガイド</h2>
           <dl>
-            <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>移動</dd></div>
-            <div><dt><kbd>↑</kbd></dt><dd>右回転</dd></div>
-            <div><dt><kbd>Z</kbd></dt><dd>左回転</dd></div>
+            <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>移動</dd></div>
             <div><dt><kbd>↓</kbd></dt><dd>ソフトドロップ</dd></div>
             <div><dt><kbd>Space</kbd></dt><dd>ハードドロップ</dd></div>
-            <div><dt><kbd>C</kbd></dt><dd>HOLD</dd></div>
-            <div><dt><kbd>P</kbd></dt><dd>一時停止・再開</dd></div>
+            <div><dt><kbd>↑</kbd> / <kbd>X</kbd></dt><dd>右回転</dd></div>
+            <div><dt><kbd>Z</kbd></dt><dd>左回転</dd></div>
+            <div><dt><kbd>A</kbd></dt><dd>180°回転</dd></div>
+            <div><dt><kbd>C</kbd> / <kbd>Shift</kbd></dt><dd>HOLD</dd></div>
+            <div><dt><kbd>P</kbd> / <kbd>Esc</kbd></dt><dd>一時停止</dd></div>
             <div><dt><kbd>R</kbd></dt><dd>リスタート</dd></div>
+            <div><dt><kbd>M</kbd></dt><dd>サウンドON/OFF</dd></div>
           </dl>
         </section>
       </aside>
+
       <section class="play-area" aria-label="ゲーム盤面">
-        <h2 id="human-player-title" class="vs-player-title">YOU</h2>
-        <div id="vs-indicators" class="vs-indicators vs-incoming-indicator" hidden>
-          <span>Human Incoming: <strong id="human-incoming">0</strong></span>
-        </div>
-        <div class="board-stage">
+        <div class="board-stage" id="board-stage">
           <canvas id="board" width="300" height="600" aria-label="10列20行のゲーム盤"></canvas>
+          <canvas id="fx" width="300" height="600" aria-hidden="true"></canvas>
+          <div id="banner" class="banner" aria-hidden="true"></div>
+          <div id="countdown" class="countdown" aria-hidden="true" hidden></div>
           <div id="pause-visual" class="pause-visual" aria-hidden="true" hidden>PAUSED</div>
-          <section id="results" class="results-overlay" aria-live="polite" aria-labelledby="results-title" hidden>
-            <div class="results-card">
-              <p id="results-debug" class="results-debug"></p>
-              <h2 id="results-title">GAME OVER</h2>
+
+          <section id="start-overlay" class="overlay">
+            <div class="overlay-card">
+              <p class="eyebrow">✦ FALLING BLOCK GAME ✦</p>
+              <h2 class="overlay-title">BRILLIANT<br>BLOCKS</h2>
+              <p class="start-mode">MARATHON — 150 LINES</p>
+              <div class="start-high"><span>HIGH SCORE</span><strong id="start-high-score">0</strong></div>
+              <button id="start-game" class="btn-gold big" type="button">▶ START</button>
+              <p class="overlay-note">←→移動 / Space ハードドロップ / ↑・X 右回転 / Z 左回転 / C HOLD</p>
+            </div>
+          </section>
+
+          <section id="results" class="overlay" hidden>
+            <div class="overlay-card">
+              <p class="eyebrow" id="results-eyebrow">RESULTS</p>
+              <h2 class="overlay-title small" id="results-title">GAME OVER</h2>
               <dl class="results-stats">
                 <div><dt>SCORE</dt><dd id="results-score">0</dd></div>
                 <div><dt>LINES</dt><dd id="results-lines">0</dd></div>
                 <div><dt>LEVEL</dt><dd id="results-level">1</dd></div>
+                <div><dt>TIME</dt><dd id="results-time">00:00</dd></div>
+                <div><dt>TETRIS</dt><dd id="results-tetrises">0</dd></div>
+                <div><dt>T-SPIN</dt><dd id="results-tspins">0</dd></div>
+                <div><dt>PERFECT CLEAR</dt><dd id="results-pcs">0</dd></div>
+                <div><dt>MAX COMBO</dt><dd id="results-maxcombo">0</dd></div>
                 <div><dt>HIGH SCORE</dt><dd id="results-high-score">0</dd></div>
               </dl>
-              <section class="results-play" aria-labelledby="results-play-title">
-                <h3 id="results-play-title">PLAY STATISTICS</h3>
-                <dl>
-                  <div><dt>PLAY TIME</dt><dd id="results-play-time">00:00</dd></div>
-                  <div><dt>TETRIS</dt><dd id="results-tetrises">0</dd></div>
-                  <div><dt>T-SPIN</dt><dd id="results-t-spins">0</dd></div>
-                  <div><dt>T-SPIN MINI</dt><dd id="results-t-spin-minis">0</dd></div>
-                  <div><dt>PERFECT CLEAR</dt><dd id="results-perfect-clears">0</dd></div>
-                  <div><dt>MAX COMBO</dt><dd id="results-max-combo">0</dd></div>
-                </dl>
-              </section>
-              <button id="play-again" type="button">PLAY AGAIN <kbd>R</kbd></button>
+              <button id="play-again" class="btn-gold big" type="button">PLAY AGAIN <kbd>R</kbd></button>
+              <button id="continue-endless" class="btn-ghost" type="button" hidden>そのまま続ける（エンドレス）</button>
             </div>
           </section>
         </div>
-        <p id="status" role="status">プレイ中</p>
-        <p id="clear-event" role="status" aria-atomic="true"></p>
+        <p id="status" role="status">STARTを押してね</p>
       </section>
-      <aside class="right-panel" aria-label="次のブロックと成績">
+
+      <aside class="right-panel">
         <section class="panel preview-panel">
           <h2>NEXT</h2>
-          <canvas id="next" width="120" height="200" aria-label="次の5個のブロック。上から出現順"></canvas>
-          <p class="hint">上から出現順</p>
+          <canvas id="next" width="132" height="330"></canvas>
+          <p class="hint">上から出現順（5個先まで）</p>
         </section>
-        <section class="panel stats" aria-label="成績">
-          <div class="stat stat-wide"><h2>スコア</h2><strong id="score">0</strong></div>
-          <div class="stat stat-wide stat-high"><h2>ハイスコア</h2><strong id="high-score">0</strong></div>
-          <div class="stat"><h2>レベル</h2><strong id="level">1</strong></div>
-          <div class="stat"><h2>LINES</h2><strong id="lines">0</strong></div>
-          <div class="chain-status"><span id="b2b" title="B2Bチェーンの現在の状態">B2B OFF</span><span id="combo"></span><span id="qa-run" hidden>QA RUN</span></div>
-          <p class="hint">10ライン消去でレベルアップ</p>
+        <section class="panel stats">
+          <div class="stat wide"><h2>SCORE</h2><strong id="score">0</strong></div>
+          <div class="stat wide gold"><h2>HIGH SCORE</h2><strong id="high-score">0</strong></div>
+          <div class="stat"><h2>LEVEL</h2><strong id="level">1</strong></div>
+          <div class="stat"><h2>LINES</h2><strong id="lines">0</strong><span class="stat-sub" id="lines-left">/ 150</span></div>
+          <div class="chain"><span id="b2b" class="chip">B2B ―</span><span id="combo" class="chip"></span></div>
         </section>
         <div class="actions">
           <button id="pause" type="button">一時停止（P）</button>
           <button id="restart" type="button">リスタート（R）</button>
           <button id="open-settings" type="button">SETTINGS</button>
-          <button id="open-dev-tools" class="dev-tools-open" type="button">DEV TOOLS</button>
+          <button id="toggle-sound" type="button">SOUND ON（M）</button>
         </div>
       </aside>
     </div>
-    <section id="dual-board-test" class="dual-board-test" aria-label="CPU player panel" hidden>
-      <div class="dual-player-view">
-        <h2 id="second-player-title">PLAYER 2</h2>
-        <div id="cpu-incoming-indicator" class="vs-indicators vs-incoming-indicator" hidden>
-          <span>CPU Incoming: <strong id="second-incoming">0</strong></span>
-        </div>
-        <div class="dual-player-layout">
-          <div class="dual-board-wrap"><canvas id="second-board" width="300" height="600" aria-label="CPUのゲーム盤"></canvas><p id="second-status" class="dual-status" role="status"></p></div>
-          <div class="dual-player-side">
-            <section class="dual-preview"><h3>HOLD</h3><canvas id="second-hold" width="120" height="80" aria-label="Player 2のHOLD"></canvas></section>
-            <section class="dual-preview"><h3>NEXT</h3><canvas id="second-next" width="120" height="200" aria-label="Player 2のNEXT"></canvas></section>
-            <dl class="dual-stats"><div><dt>SCORE</dt><dd id="second-score">0</dd></div><div><dt>LINES</dt><dd id="second-lines">0</dd></div><div><dt>LEVEL</dt><dd id="second-level">1</dd></div></dl>
-          </div>
-        </div>
-      </div>
-      <button id="dual-exit" type="button">EXIT DUAL TEST</button>
-    </section>
+
+    <div class="touch-pad" aria-label="タッチ操作">
+      <button data-act="left" type="button">◀</button>
+      <button data-act="right" type="button">▶</button>
+      <button data-act="down" type="button">▼</button>
+      <button data-act="cw" type="button">⟳</button>
+      <button data-act="ccw" type="button">⟲</button>
+      <button data-act="hard" type="button">⤓</button>
+      <button data-act="hold" type="button">HOLD</button>
     </div>
-    <p class="footer-note">薄いブロックは着地点の目印です。</p>
+
+    <p class="footer-note">薄く光るブロックはゴースト（着地点）。ライン消去・T-Spin・PERFECT CLEARで盤面が輝きます。</p>
   </main>
-  <section id="vs-results" class="vs-results-overlay" role="dialog" aria-modal="true" aria-labelledby="vs-results-title" hidden>
-    <div class="vs-results-card">
-      <p class="results-debug">VS MATCH</p>
-      <h2 id="vs-results-title" tabindex="-1">YOU WIN</h2>
-      <div class="vs-results-players">
-        <section aria-labelledby="vs-human-label">
-          <h3 id="vs-human-label">HUMAN</h3>
-          <dl><div><dt>SCORE</dt><dd id="vs-human-score">0</dd></div><div><dt>LINES</dt><dd id="vs-human-lines">0</dd></div></dl>
-        </section>
-        <section aria-labelledby="vs-cpu-label">
-          <h3 id="vs-cpu-label">CPU</h3>
-          <dl><div><dt>SCORE</dt><dd id="vs-cpu-score">0</dd></div><div><dt>LINES</dt><dd id="vs-cpu-lines">0</dd></div></dl>
-        </section>
-      </div>
-      <div class="vs-results-actions"><button id="vs-rematch" type="button">REMATCH</button><button id="vs-exit" type="button">EXIT</button></div>
-    </div>
-  </section>
-  <section id="start-overlay" class="start-overlay" role="dialog" aria-modal="true" aria-labelledby="start-title">
-    <div class="start-panel">
-      <p class="eyebrow">FALLING BLOCK GAME</p>
-      <h2 id="start-title">落ちものブロックパズル</h2>
-      <p class="start-mode">MARATHON</p>
-      <strong class="start-target">150 LINES</strong>
-      <div class="start-high-score"><span>HIGH SCORE</span><strong id="start-high-score">0</strong></div>
-      <div class="start-actions">
-        <button id="start-game" type="button">START</button>
-        <button id="start-vs" type="button">VS CPU</button>
-        <button id="start-settings" type="button">SETTINGS</button>
-        <button id="start-dev-tools" class="dev-tools-open" type="button">DEV TOOLS</button>
-      </div>
-    </div>
-  </section>
-  <section id="settings-overlay" class="settings-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
-    <div class="settings-panel">
-      <h2 id="settings-title">SETTINGS</h2>
+
+  <section id="settings-overlay" class="modal" hidden>
+    <div class="modal-card">
+      <h2>SETTINGS</h2>
       <div class="setting-row">
-        <label for="setting-das">DAS <output id="setting-das-value" for="setting-das">170 ms</output></label>
-        <input id="setting-das" type="range" min="80" max="300" step="10" value="170">
-        <p>FAST ← 数字が小さいほど速い → SLOW</p>
+        <label for="setting-das">DAS（長押し開始） <output id="setting-das-value">150 ms</output></label>
+        <input id="setting-das" type="range" min="60" max="300" step="10" value="150">
       </div>
       <div class="setting-row">
-        <label for="setting-arr">ARR <output id="setting-arr-value" for="setting-arr">50 ms</output></label>
-        <input id="setting-arr" type="range" min="20" max="100" step="5" value="50">
+        <label for="setting-arr">ARR（連射間隔） <output id="setting-arr-value">30 ms</output></label>
+        <input id="setting-arr" type="range" min="0" max="100" step="5" value="30">
       </div>
+      <label class="setting-toggle"><span>SFX（効果音）</span><input id="setting-sfx" type="checkbox" checked></label>
       <div class="setting-row">
-        <label for="setting-soft-drop">SOFT DROP <output id="setting-soft-drop-value" for="setting-soft-drop">40 ms</output></label>
-        <input id="setting-soft-drop" type="range" min="20" max="100" step="5" value="40">
+        <label for="setting-volume">VOLUME <output id="setting-volume-value">80%</output></label>
+        <input id="setting-volume" type="range" min="0" max="100" step="5" value="80">
       </div>
-      <label class="setting-toggle" for="setting-sfx"><span>SFX</span><input id="setting-sfx" type="checkbox" checked></label>
-      <div class="setting-row">
-        <label for="setting-volume">VOLUME <output id="setting-volume-value" for="setting-volume">100%</output></label>
-        <input id="setting-volume" type="range" min="0" max="100" step="5" value="100">
-      </div>
-      <label class="setting-toggle" for="setting-effects"><span>VISUAL EFFECTS</span><input id="setting-effects" type="checkbox" checked></label>
-      <div class="settings-actions">
-        <button id="reset-settings" type="button">RESET DEFAULTS</button>
-        <button id="close-settings" type="button">CLOSE</button>
-      </div>
-    </div>
-  </section>
-  <section id="qa-overlay" class="settings-overlay" role="dialog" aria-modal="true" aria-labelledby="qa-title" hidden>
-    <div class="settings-panel qa-panel">
-      <h2 id="qa-title">DEV TOOLS</h2>
-      <p class="qa-note">Debug / QA RunはHigh Score対象外です。</p>
-      <section class="dev-section" aria-labelledby="debug-start-title">
-        <h3 id="debug-start-title">DEBUG START</h3>
-        <div class="debug-start-actions">
-          <button type="button" data-debug-level="1">LEVEL 1</button>
-          <button type="button" data-debug-level="5">LEVEL 5</button>
-          <button type="button" data-debug-level="10">LEVEL 10</button>
-          <button type="button" data-debug-level="13">LEVEL 13</button>
-          <button type="button" data-debug-level="15">LEVEL 15</button>
-        </div>
-      </section>
-      <section class="dev-section" aria-labelledby="qa-assist-title">
-        <h3 id="qa-assist-title">QA ASSIST</h3>
-        <div class="qa-actions">
-          <button id="qa-149" type="button">LOAD 149 → 150</button>
-          <button id="qa-clear" type="button">CLEAR BOARD</button>
-          <button id="qa-force-i" type="button">FORCE I</button>
-          <button id="qa-top-out" type="button">LOAD TOP OUT TEST</button>
-          <button id="qa-garbage-human" type="button">QUEUE 2 → HUMAN</button>
-          <button id="qa-dual" type="button">DUAL BOARD TEST</button>
-          <button id="qa-cpu" type="button">CPU TEST</button>
-          <button id="qa-vs-engine" type="button">VS ENGINE TEST</button>
-          <button id="qa-force-human-top-out" type="button" hidden>FORCE HUMAN TOP OUT</button>
-          <button id="qa-force-cpu-top-out" type="button" hidden>FORCE CPU TOP OUT</button>
-          <button id="qa-force-double-top-out" type="button" hidden>FORCE DOUBLE TOP OUT</button>
-          <button id="qa-transactional-lock" type="button" hidden>SETUP SAME-WINDOW LOCK TEST</button>
-        </div>
-      </section>
-      <p id="qa-message" class="qa-message" role="status"></p>
-      <div class="settings-actions">
-        <button id="qa-reset" type="button">RESET QA RUN</button>
-        <button id="qa-close" type="button">CLOSE</button>
+      <label class="setting-toggle"><span>VISUAL EFFECTS（演出）</span><input id="setting-effects" type="checkbox" checked></label>
+      <label class="setting-toggle"><span>SCREEN SHAKE（画面シェイク）</span><input id="setting-shake" type="checkbox" checked></label>
+      <div class="modal-actions">
+        <button id="reset-settings" type="button">RESET</button>
+        <button id="close-settings" class="btn-gold" type="button">CLOSE</button>
       </div>
     </div>
   </section>
