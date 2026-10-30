@@ -72,6 +72,14 @@ function collides(board, type, state, px, py) {
   }
   return false;
 }
+/* 出現位置: ピース全体が表示盤面の最上段から見える高さ(主流実装・旧版と同じ)。
+   ガイドラインの出現行(21・22行目)はバッファ内だが、出現直後に全体が見えるのが標準的な見え方。
+   Iだけは形状の都合で1行上から出す。 */
+function spawnY(type) {
+  const cells = cellsOf(type, 0, 0, 0);
+  const minDy = Math.min(...cells.map(c => c[1]));
+  return HIDDEN - minDy;
+}
 function makeBag(rng) {
   const bag = TYPES.slice();
   for (let i = bag.length - 1; i > 0; i--) {
@@ -120,7 +128,7 @@ function scoreClear({lines, tspin, b2bActive, level, combo, isPC}) {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {COLS, ROWS, VISIBLE, HIDDEN, TYPES, SHAPES, KICKS_JLSTZ, KICKS_I,
-    gravityMs, createBoard, cellsOf, collides, makeBag, detectTSpin, scoreClear, LOCK_DELAY, MAX_LOCK_RESETS, MARATHON_GOAL};
+    gravityMs, createBoard, cellsOf, collides, makeBag, detectTSpin, scoreClear, spawnY, LOCK_DELAY, MAX_LOCK_RESETS, MARATHON_GOAL};
 }
 
 /* ================= 以下、ブラウザ専用 ================= */
@@ -181,7 +189,7 @@ function refill(st) { while (st.queue.length < 10) st.queue.push(...makeBag(Math
 function spawn(st, fromHold) {
   refill(st);
   const type = fromHold || st.queue.shift();
-  const piece = {type, state: 0, x: type === "O" ? 4 : 3, y: type === "I" ? 0 : 0};
+  const piece = {type, state: 0, x: type === "O" ? 4 : 3, y: spawnY(type)};
   /* 出現位置で重なれば1行上、それでも重なればゲームオーバー(ブロックアウト) */
   if (collides(st.board, piece.type, 0, piece.x, piece.y)) piece.y -= 1;
   st.piece = piece; lockResets = 0; lockAcc = 0; grounded = false; lastAction = null; lastKick = -1;
