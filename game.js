@@ -58,7 +58,7 @@ const GRAVITY_MS = [1000,793,618,473,355,262,190,135,94,64,43,28,18,11,7,5,4,3,2
 function gravityMs(level) { return GRAVITY_MS[Math.min(level, GRAVITY_MS.length) - 1]; }
 /* ソフトドロップ間隔: ガイドライン通り重力の20倍速(レベル1で50ms/セル) */
 function softDropMs(level) { return gravityMs(level) / 20; }
-const LOCK_DELAY = 500, MAX_LOCK_RESETS = 15, MARATHON_GOAL = 150;
+const LOCK_DELAY = 500, MAX_LOCK_RESETS = 15, MILESTONE_LINES = 150; /* 150ラインは終了ではなく通過点 */
 
 function createBoard() { return Array.from({length: ROWS}, () => Array(COLS).fill(null)); }
 function cellsOf(type, state, px, py) {
@@ -130,7 +130,7 @@ function scoreClear({lines, tspin, b2bActive, level, combo, isPC}) {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {COLS, ROWS, VISIBLE, HIDDEN, TYPES, SHAPES, KICKS_JLSTZ, KICKS_I,
-    gravityMs, softDropMs, createBoard, cellsOf, collides, makeBag, detectTSpin, scoreClear, spawnY, LOCK_DELAY, MAX_LOCK_RESETS, MARATHON_GOAL};
+    gravityMs, softDropMs, createBoard, cellsOf, collides, makeBag, detectTSpin, scoreClear, spawnY, LOCK_DELAY, MAX_LOCK_RESETS, MILESTONE_LINES};
 }
 
 /* ================= 以下、ブラウザ専用 ================= */
@@ -150,7 +150,7 @@ const vegasOn = () => settings.effects && settings.vegas;
 const isFever = () => performance.now() < feverUntil;
 let lastTime = 0, dropAcc = 0, lockAcc = 0, lockResets = 0, grounded = false;
 let lastAction = null, lastKick = -1, holdUsed = false, paused = false, running = false, countingDown = false;
-let endless = false, startAt = 0, playMs = 0, rafId = null;
+let milestoneDone = false, startAt = 0, playMs = 0, rafId = null;
 const keys = {left: false, right: false, down: false};
 let dasAcc = 0, arrAcc = 0, activeDir = 0, dasCharged = false;
 
@@ -441,7 +441,7 @@ function updateHud() {
   $("high-score").textContent = highScore.toLocaleString();
   $("level").textContent = S.level;
   $("lines").textContent = S.lines;
-  $("lines-left").textContent = endless ? "/ ∞" : "/ " + MARATHON_GOAL;
+  $("lines-left").textContent = S.lines < MILESTONE_LINES ? "/ " + MILESTONE_LINES : "✦ ∞";
   const b2b = $("b2b");
   b2b.textContent = S.b2b ? "B2B ACTIVE ✦" : "B2B ―";
   b2b.className = "chip" + (S.b2b ? " on" : "");
@@ -567,7 +567,7 @@ function lockPiece() {
     }, settings.effects ? 240 : 0);
     if (S.level > oldLevel) setTimeout(() => { showBanner("LEVEL " + S.level, "SPEED UP!"); sfx.levelup(); fireworks(90, 200, 40); fireworks(210, 200, 40); }, 300);
     updateHud();
-    if (!endless && S.lines >= MARATHON_GOAL) return marathonClear();
+    if (!milestoneDone && S.lines >= MILESTONE_LINES) { milestoneDone = true; celebrateMilestone(); }
     return;
   }
   /* 消去なし */
@@ -696,9 +696,9 @@ document.querySelectorAll(".touch-pad button").forEach(btn => {
 
 /* ---------- 開始・終了 ---------- */
 function fmtTime(ms) { const s = Math.floor(ms / 1000); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); }
-function startGame(keepEndless = false) {
+function startGame() {
   S = newState(); refill(S);
-  endless = keepEndless; holdUsed = false; paused = false; playMs = 0; dropAcc = 0; lockAcc = 0;
+  milestoneDone = false; holdUsed = false; paused = false; playMs = 0; dropAcc = 0; lockAcc = 0;
   particles = []; floats = []; beams = []; rings = []; trails = []; clearingRows = null;
   fever = 0; feverUntil = 0; hitStopUntil = 0; document.body.classList.remove("fever");
   $("start-overlay").hidden = true; $("results").hidden = true; $("pause-visual").hidden = true;
@@ -706,7 +706,7 @@ function startGame(keepEndless = false) {
   if (!spawn(S)) return gameOver();
   running = true; lastTime = 0;
   drawPreview(holdCv, null); drawNext(); updateHud();
-  $("status").textContent = "プレイ中 — 150ラインを目指そう！";
+  $("status").textContent = "プレイ中 — エンドレス（150ラインは通過点）";
   cancelAnimationFrame(rafId); rafId = requestAnimationFrame(frame);
   countdown();
 }
@@ -740,7 +740,6 @@ function showResults(title, eyebrow) {
   $("results-pcs").textContent = S.stats.pc;
   $("results-maxcombo").textContent = Math.max(0, S.stats.maxCombo);
   $("results-high-score").textContent = highScore.toLocaleString();
-  $("continue-endless").hidden = !(title === "MARATHON COMPLETE!");
   $("results").hidden = false;
   updateHud();
 }
@@ -750,10 +749,15 @@ function gameOver() {
   $("status").textContent = "GAME OVER";
   setTimeout(() => showResults("GAME OVER", "RESULTS"), 650);
 }
-function marathonClear() {
-  sfx.pc(); showBanner("MARATHON COMPLETE!", "✦ CONGRATULATIONS ✦", true);
-  $("status").textContent = "MARATHON COMPLETE!";
-  setTimeout(() => showResults("MARATHON COMPLETE!", "✦ CLEAR ✦"), 900);
+/* 150ライン通過点: ゲームは止めずにお祝いだけ出す */
+function celebrateMilestone() {
+  setTimeout(() => {
+    showBanner("150 LINES!", "✦ MILESTONE — まだまだ続くよ ✦", true);
+    sfx.pc(); sfx.jackpot();
+    fireworks(80, 200, 60); fireworks(220, 200, 60); fireworks(150, 360, 72);
+    coinFountain(150, 420, 34); flashFx("#ffd76a");
+    $("status").textContent = "150ライン通過！ そのままエンドレス続行中";
+  }, 350);
 }
 function togglePause() {
   if (!S || S.over) return;
@@ -792,7 +796,6 @@ $("pause").addEventListener("click", togglePause);
 $("restart").addEventListener("click", () => startGame());
 $("start-game").addEventListener("click", () => startGame());
 $("play-again").addEventListener("click", () => startGame());
-$("continue-endless").addEventListener("click", () => { endless = true; $("results").hidden = true; running = true; paused = false; if (!spawn(S)) return gameOver(); holdUsed = false; drawNext(); updateHud(); });
 
 /* ---------- 起動 ---------- */
 S = newState(); refill(S); spawn(S);

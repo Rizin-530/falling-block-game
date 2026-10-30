@@ -104,6 +104,14 @@ test("重力テーブル: レベルが上がると速くなる", () => {
   assert.equal(G.gravityMs(1), 1000);
 });
 
+test("既定エンドレス: 150ラインは通過点でゲームを止めない", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const js = fs.readFileSync(path.join(__dirname, "game.js"), "utf8");
+  assert.ok(js.includes("celebrateMilestone") && js.includes("MILESTONE_LINES = 150"));
+  assert.ok(!js.includes("marathonClear"), "終了扱いのマラソンクリアは存在しない");
+  assert.equal(G.MILESTONE_LINES, 150);
+});
+
 test("ソフトドロップ: 重力の20倍速(レベル1=50ms/セル)", () => {
   assert.equal(G.softDropMs(1), 50);
   assert.equal(G.softDropMs(5), G.gravityMs(5) / 20);

@@ -18,7 +18,7 @@ Vanilla HTML / CSS / JavaScriptのみ、ビルド不要です。
   T-Spin 400〜2400(3-corner判定、Mini・キック昇格あり)、**Back-to-Back ×1.5**、
   コンボ 50点×カウント、**Perfect Clear** ボーナス、ドロップ点(ソフト1点/セル、ハード2点/セル)、全てレベル倍率
 - レベルは10ライン毎に上昇(重力はガイドライン系テーブル)
-- **150ラインで MARATHON COMPLETE**(そのままエンドレス継続も可能)
+- **既定はエンドレス**(詰むまで続く)。150ラインは終了ではなく通過点で、到達時に「150 LINES!」のお祝い演出が出るだけ
 
 旧版にあった VS CPU / DEV TOOLS は落として、シングルプレイの基本に集中させました。
 
@@ -96,4 +96,4 @@ HTML / CSS / Vanilla JavaScript(Canvas + Web Audio API)。外部ライブラリ�
 
 ## Version
 
-v2.1.0 — VEGAS MODE
+v2.2.0 — Endless default
