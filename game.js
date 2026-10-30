@@ -56,6 +56,8 @@ const KICKS_I = {
 const KICKS_180 = [[0,0],[0,-1],[1,0],[-1,0],[1,-1],[-1,-1],[0,1]];
 const GRAVITY_MS = [1000,793,618,473,355,262,190,135,94,64,43,28,18,11,7,5,4,3,2,1.5,1];
 function gravityMs(level) { return GRAVITY_MS[Math.min(level, GRAVITY_MS.length) - 1]; }
+/* ソフトドロップ間隔: ガイドライン通り重力の20倍速(レベル1で50ms/セル) */
+function softDropMs(level) { return gravityMs(level) / 20; }
 const LOCK_DELAY = 500, MAX_LOCK_RESETS = 15, MARATHON_GOAL = 150;
 
 function createBoard() { return Array.from({length: ROWS}, () => Array(COLS).fill(null)); }
@@ -128,7 +130,7 @@ function scoreClear({lines, tspin, b2bActive, level, combo, isPC}) {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {COLS, ROWS, VISIBLE, HIDDEN, TYPES, SHAPES, KICKS_JLSTZ, KICKS_I,
-    gravityMs, createBoard, cellsOf, collides, makeBag, detectTSpin, scoreClear, spawnY, LOCK_DELAY, MAX_LOCK_RESETS, MARATHON_GOAL};
+    gravityMs, softDropMs, createBoard, cellsOf, collides, makeBag, detectTSpin, scoreClear, spawnY, LOCK_DELAY, MAX_LOCK_RESETS, MARATHON_GOAL};
 }
 
 /* ================= 以下、ブラウザ専用 ================= */
@@ -622,7 +624,7 @@ function frame(t) {
     }
     /* 重力 / ソフトドロップ(ヒットストップ中は落下だけ止める) */
     const hitFrozen = performance.now() < hitStopUntil;
-    const interval = keys.down ? Math.min(20, gravityMs(S.level) / 20) : gravityMs(S.level);
+    const interval = keys.down ? softDropMs(S.level) : gravityMs(S.level);
     if (!hitFrozen) dropAcc += dt;
     while (dropAcc >= interval) {
       dropAcc -= interval;
@@ -664,7 +666,7 @@ document.addEventListener("keydown", e => {
   switch (e.code) {
     case "ArrowLeft": if (!keys.left) startDirection("left", -1); break;
     case "ArrowRight": if (!keys.right) startDirection("right", 1); break;
-    case "ArrowDown": keys.down = true; dropAcc = Math.max(dropAcc, gravityMs(S.level) / 20); break;
+    case "ArrowDown": keys.down = true; dropAcc = 0; break; /* 落下タイマーの残量を持ち越すと一気に落ちるのでリセット */
     case "ArrowUp": case "KeyX": tryRotate(1); break;
     case "KeyZ": tryRotate(-1); break;
     case "KeyA": tryRotate180(); break;

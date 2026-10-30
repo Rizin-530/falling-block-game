@@ -103,3 +103,9 @@ test("重力テーブル: レベルが上がると速くなる", () => {
   for (let lv = 1; lv <= 20; lv++) { const g = G.gravityMs(lv); assert.ok(g < prev || lv === 1); prev = g; }
   assert.equal(G.gravityMs(1), 1000);
 });
+
+test("ソフトドロップ: 重力の20倍速(レベル1=50ms/セル)", () => {
+  assert.equal(G.softDropMs(1), 50);
+  assert.equal(G.softDropMs(5), G.gravityMs(5) / 20);
+  assert.ok(G.softDropMs(10) < G.softDropMs(5));
+});
