@@ -81,6 +81,15 @@ test("出現位置: 全ピースが出現した瞬間に全体が見える", () 
   assert.equal(G.spawnY("T"), 2);
 });
 
+test("VEGAS演出: フィーバー/花火/コイン/レーザーの実装が存在する", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const js = fs.readFileSync(path.join(__dirname, "game.js"), "utf8");
+  for (const name of ["fireworks", "coinFountain", "laserSweep", "addFever", "FEVER TIME"])
+    assert.ok(js.includes(name), name);
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  assert.ok(html.includes("fever-bar") && html.includes("setting-vegas"));
+});
+
 test("CSS: [hidden] が display:flex 等に勝つ回帰防止(PAUSED/GO!残留バグ)", () => {
   const fs = require("node:fs"), path = require("node:path");
   const css = fs.readFileSync(path.join(__dirname, "style.css"), "utf8");
@@ -93,4 +102,27 @@ test("重力テーブル: レベルが上がると速くなる", () => {
   let prev = Infinity;
   for (let lv = 1; lv <= 20; lv++) { const g = G.gravityMs(lv); assert.ok(g < prev || lv === 1); prev = g; }
   assert.equal(G.gravityMs(1), 1000);
+});
+
+test("VEGAS MAX: 全画面花火・紙吹雪・カウントアップの実装が存在する", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const js = fs.readFileSync(path.join(__dirname, "game.js"), "utf8");
+  for (const name of ["screenFireworks", "confettiCannons", "drawScreenFx", "dispScore", "combo-hot"])
+    assert.ok(js.includes(name) || fs.readFileSync(path.join(__dirname, "style.css"), "utf8").includes(name), name);
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  assert.ok(html.includes("screen-fx"));
+});
+
+test("既定エンドレス: 150ラインは通過点でゲームを止めない", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const js = fs.readFileSync(path.join(__dirname, "game.js"), "utf8");
+  assert.ok(js.includes("celebrateMilestone") && js.includes("MILESTONE_LINES = 150"));
+  assert.ok(!js.includes("marathonClear"), "終了扱いのマラソンクリアは存在しない");
+  assert.equal(G.MILESTONE_LINES, 150);
+});
+
+test("ソフトドロップ: 重力の20倍速(レベル1=50ms/セル)", () => {
+  assert.equal(G.softDropMs(1), 50);
+  assert.equal(G.softDropMs(5), G.gravityMs(5) / 20);
+  assert.ok(G.softDropMs(10) < G.softDropMs(5));
 });

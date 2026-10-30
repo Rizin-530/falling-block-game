@@ -152,3 +152,52 @@ kbd{
   .left-panel,.right-panel{width:160px}
   .controls{display:none}
 }
+
+/* ===== VEGAS MODE: やり過ぎ演出 ===== */
+body::before,body::after{
+  content:"";position:fixed;top:-32vh;left:50%;width:130vmax;height:130vmax;z-index:0;pointer-events:none;
+  background:conic-gradient(from 0deg,transparent 0deg,rgba(255,120,220,.06) 12deg,transparent 26deg,rgba(120,220,255,.05) 60deg,transparent 78deg,rgba(255,215,106,.06) 120deg,transparent 140deg);
+  transform-origin:0 0;animation:beamsSpin 46s linear infinite;mix-blend-mode:screen;
+}
+body::after{animation-duration:64s;animation-direction:reverse;opacity:.7}
+@keyframes beamsSpin{to{transform:rotate(360deg)}}
+.board-stage::before{
+  content:"";position:absolute;inset:0;border-radius:14px;pointer-events:none;z-index:2;
+  box-shadow:inset 0 0 36px rgba(255,120,220,.4),inset 0 0 10px rgba(255,255,255,.28),inset 0 0 90px rgba(90,50,220,.35);
+  animation:insetPulse 2.6s ease-in-out infinite;
+}
+@keyframes insetPulse{0%,100%{opacity:.5}50%{opacity:1}}
+body.fever .board-stage::before{animation-duration:.75s}
+.logo{animation:neonFlicker 5s linear infinite}
+@keyframes neonFlicker{0%,6.5%,8%,100%{opacity:1}7%{opacity:.55}42%,43.5%{opacity:1}42.7%{opacity:.7}}
+#fever-bar{
+  position:absolute;top:7px;left:12px;right:12px;height:13px;z-index:4;border-radius:999px;overflow:hidden;
+  border:1px solid rgba(255,215,106,.75);background:rgba(10,4,30,.72);box-shadow:0 0 12px rgba(255,170,40,.35);
+}
+#fever-bar span{
+  display:block;height:100%;width:0%;border-radius:999px;transition:width .25s;
+  background:linear-gradient(90deg,#ff9d2e,#ff5dd2,#7a4dff,#37e6ff);background-size:200% 100%;animation:shine 1.2s linear infinite;
+}
+#fever-bar em{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-style:normal;
+  font-size:9px;font-weight:900;letter-spacing:.5em;color:#fff;text-shadow:0 0 6px #ff9d2e;
+}
+body.fever #fever-bar{box-shadow:0 0 22px rgba(255,80,200,.95);border-color:#fff}
+body.fever .board-stage{animation:feverGlow .7s ease-in-out infinite alternate}
+@keyframes feverGlow{from{filter:hue-rotate(0deg) saturate(1.25)}to{filter:hue-rotate(42deg) saturate(1.6)}}
+#flash{position:absolute;inset:0;z-index:6;pointer-events:none;background:#fff;opacity:0}
+#flash.go{animation:flashAnim .38s ease-out}
+@keyframes flashAnim{0%{opacity:.85}100%{opacity:0}}
+.board-stage.punch{animation:punchAnim .3s cubic-bezier(.2,2.4,.4,1)}
+@keyframes punchAnim{0%{transform:scale(1)}35%{transform:scale(1.035)}100%{transform:scale(1)}}
+
+/* ===== VEGAS MAX: 画面全体演出 ===== */
+#screen-fx{position:fixed;inset:0;width:100%;height:100%;z-index:60;pointer-events:none}
+.board-stage.combo-hot::before{
+  box-shadow:inset 0 0 44px rgba(255,110,30,.75),inset 0 0 14px rgba(255,220,120,.8),inset 0 -30px 60px rgba(255,60,0,.45);
+  animation-duration:.45s;
+}
+.banner.mega{font-size:46px;letter-spacing:.1em}
+.stat strong.pop-num{animation:popNum .35s cubic-bezier(.2,2.2,.4,1)}
+@keyframes popNum{0%{transform:scale(1)}40%{transform:scale(1.45);color:var(--gold)}100%{transform:scale(1)}}
+.stat strong{display:inline-block}
