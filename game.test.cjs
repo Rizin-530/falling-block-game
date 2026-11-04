@@ -63,7 +63,9 @@ test("スコア: 公式倍率・B2B・コンボ・PC", () => {
   assert.equal(G.scoreClear({...base, lines: 1}).points, 100);
   assert.equal(G.scoreClear({...base, lines: 4}).points, 800);
   assert.equal(G.scoreClear({...base, lines: 4, b2bActive: true}).points, 1200);
-  assert.equal(G.scoreClear({...base, lines: 2, tspin: "tspin", b2bActive: true}).points, 2400);
+  assert.equal(G.scoreClear({...base, lines: 2, tspin: "tspin", b2bActive: true}).points, 1800);
+  assert.equal(G.scoreClear({...base, lines: 3, tspin: "tspin"}).points, 1600);
+  assert.equal(G.scoreClear({...base, lines: 4, b2bActive: true, isPC: true}).points, 4400);
   assert.equal(G.scoreClear({...base, lines: 1, tspin: "tspin"}).points, 800);
   assert.equal(G.scoreClear({...base, lines: 1, combo: 1}).points, 150);
   assert.equal(G.scoreClear({...base, lines: 1, isPC: true}).points, 900);
