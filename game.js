@@ -128,9 +128,12 @@ function scoreClear({lines, tspin, b2bActive, level, combo, isPC}) {
   return {points: pts, label, difficult, pcBonus};
 }
 
+/* ロックアウト(ガイドライン): 全セルが可視範囲の上=バッファ行内で固定されたらゲームオーバー */
+function isLockOut(cells) { return cells.length > 0 && cells.every(([, y]) => y < HIDDEN); }
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {COLS, ROWS, VISIBLE, HIDDEN, TYPES, SHAPES, KICKS_JLSTZ, KICKS_I,
-    gravityMs, softDropMs, createBoard, cellsOf, collides, makeBag, detectTSpin, scoreClear, spawnY, LOCK_DELAY, MAX_LOCK_RESETS, MILESTONE_LINES};
+    gravityMs, softDropMs, createBoard, cellsOf, collides, makeBag, detectTSpin, scoreClear, spawnY, isLockOut, LOCK_DELAY, MAX_LOCK_RESETS, MILESTONE_LINES};
 }
 
 /* ================= 以下、ブラウザ専用 ================= */
@@ -584,10 +587,10 @@ function hardDrop() {
 }
 function lockPiece() {
   const p = S.piece;
-  for (const [x, y] of cellsOf(p.type, p.state, p.x, p.y)) {
-    if (y < 0) return gameOver();           /* ロックアウト */
-    S.board[y][x] = p.type;
-  }
+  const cells = cellsOf(p.type, p.state, p.x, p.y);
+  /* ロックアウト: 全セルがバッファ内で固定されたら終了(盤面へ書く前に判定)。y<0 のセルがある場合も安全のため終了 */
+  if (cells.some(([, y]) => y < 0) || isLockOut(cells)) return gameOver();
+  for (const [x, y] of cells) S.board[y][x] = p.type;
   sfx.lock();
   if (vegasOn()) { const c = cellsOf(p.type, p.state, p.x, p.y)[0]; if (c) burst(c[0] * CELL + 15, (Math.max(HIDDEN, c[1]) - HIDDEN) * CELL + 15, p.type, 5, 1.4); }
   const tspin = detectTSpin(S.board, p, lastAction, lastKick);

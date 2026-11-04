@@ -83,6 +83,13 @@ test("出現位置: 全ピースが出現した瞬間に全体が見える", () 
   assert.equal(G.spawnY("T"), 2);
 });
 
+test("ロックアウト: 全セルがバッファ内なら終了、1つでも見えていれば継続", () => {
+  assert.equal(G.isLockOut([[3, 0], [4, 0], [5, 0], [4, 1]]), true);   /* 全部 y<HIDDEN(=2) */
+  assert.equal(G.isLockOut([[3, 1], [4, 1], [5, 1], [4, 2]]), false);  /* 最下段が見えている */
+  assert.equal(G.isLockOut([[3, 2], [4, 2], [5, 2], [4, 3]]), false);
+  assert.equal(G.isLockOut([]), false);
+});
+
 test("盤面の内側グローは視認性を邪魔しない弱さ(紫ハイズ回帰防止)", () => {
   const fs = require("node:fs"), path = require("node:path");
   const css = fs.readFileSync(path.join(__dirname, "style.css"), "utf8");
