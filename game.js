@@ -105,7 +105,7 @@ function detectTSpin(board, piece, lastAction, kickIndex) {
 /* スコア表(レベル倍率前) */
 const SCORE_TABLE = {
   single: 100, double: 300, triple: 500, tetris: 800,
-  tspin: 400, tspin_single: 800, tspin_double: 1600, tspin_triple: 2400,
+  tspin: 400, tspin_single: 800, tspin_double: 1200, tspin_triple: 1600,
   mini: 100, mini_single: 200, mini_double: 400
 };
 const LINE_NAMES = ["", "single", "double", "triple", "tetris"];
@@ -124,7 +124,7 @@ function scoreClear({lines, tspin, b2bActive, level, combo, isPC}) {
   else if (lines > 0) label = ["", "SINGLE", "DOUBLE", "TRIPLE"][lines];
   if (combo >= 1) pts += 50 * combo; /* コンボはレベル倍率なし(50 x カウント) */
   let pcBonus = 0;
-  if (isPC && lines > 0) { pcBonus = PC_TABLE[lines] * level; if (lines === 4 && b2bActive) pcBonus += 1500 * level; pts += pcBonus; }
+  if (isPC && lines > 0) { pcBonus = PC_TABLE[lines] * level; if (lines === 4 && b2bActive) pcBonus += 1200 * level; /* B2B TETRIS PC は合計 3200(ガイドライン) */ pts += pcBonus; }
   return {points: pts, label, difficult, pcBonus};
 }
 
