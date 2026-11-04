@@ -72,15 +72,16 @@ test("スコア: 公式倍率・B2B・コンボ・PC", () => {
   assert.equal(G.scoreClear({...base, lines: 4, level: 2}).points, 1600);
 });
 
-test("出現位置: 全ピースが出現した瞬間に全体が見える", () => {
+test("出現位置: ガイドライン式(最下段が下から21行目、全セルがバッファ内)", () => {
   for (const t of G.TYPES) {
     const y = G.spawnY(t);
     const cells = G.cellsOf(t, 0, 3, y);
-    assert.ok(cells.every(([, cy]) => cy >= G.HIDDEN), `${t} must spawn fully visible`);
-    assert.ok(cells.some(([, cy]) => cy === G.HIDDEN), `${t} bottom/top touches top visible row area`);
+    assert.equal(Math.max(...cells.map(([, cy]) => cy)), G.HIDDEN - 1, `${t} lowest cell must be on row 21`);
+    assert.ok(cells.every(([, cy]) => cy < G.HIDDEN), `${t} must spawn inside the buffer zone`);
   }
-  assert.equal(G.spawnY("I"), 1);
-  assert.equal(G.spawnY("T"), 2);
+  /* I は21行目の1行だけに出現する */
+  const iCells = G.cellsOf("I", 0, 3, G.spawnY("I"));
+  assert.ok(iCells.every(([, cy]) => cy === G.HIDDEN - 1));
 });
 
 test("ロックアウト: 全セルがバッファ内なら終了、1つでも見えていれば継続", () => {
